@@ -2,11 +2,39 @@
 
 Offline reconstruction and measured floor-plan generation for the supplied Stray Scanner/ARKit LiDAR captures.
 
-The project is being built as a checkpoint-gated assessment. The detailed scope, audit findings, architecture, acceptance gates, risks, and append-only decision record are maintained in [THOUGHT.md](THOUGHT.md).
+The project was built as a checkpoint-gated assessment. The detailed scope, audit findings, architecture, acceptance gates, risks, and append-only decision record are maintained in [THOUGHT.md](THOUGHT.md).
 
 ## Current status
 
-CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), CP04 (structural planes and measured convex floor plan), CP05 (complete single-capture artifact bundle), and CP06 (all-sample batch validation) are complete. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, or run the same frozen configuration across a directory of captures.
+All seven planned checkpoints are complete: repository foundation, capture validation, metric reconstruction, structural measurement, the final single-capture bundle, all-sample validation, and submission verification. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, or run the same frozen configuration across a directory of captures.
+
+## Architecture
+
+The implementation is an offline, deterministic pipeline. Diagnostic commands expose the early stages; `run` composes one complete capture; `batch` repeatedly calls that same final path with one immutable configuration.
+
+```text
+ZIP/directory capture
+        |
+        v
+dataset.py          validate structure, calibration, poses, and frame pairing
+        |
+        v
+reconstruction.py   back-project depth, apply poses, and voxel-fuse metric XYZ
+        |
+        v
+floorplan.py        fit structural planes and measure the supported floor outline
+        |
+        v
+pipeline.py         combine provenance, quality evidence, warnings, and capabilities
+        |
+        v
+outputs.py          publish the seven-file result bundle
+        ^
+        |
+batch.py            discover captures and reuse the same pipeline sequentially
+```
+
+`models.py` contains the immutable versioned contracts, while `cli.py` contains only command parsing and user-facing orchestration. Numerical logic is not duplicated in the CLI, batch runner, or demo script.
 
 ## Requirements
 
@@ -56,6 +84,18 @@ Local sample fingerprints recorded before repository cleanup:
 | `single_scan_with_ceiling.zip` | `4bfbeb11ee21b114c46ad43cf0c9602d8ada827397f4e8b3c70dd827d0191379` |
 
 These hashes identify the locally audited inputs; they are not download credentials or proof of ground truth.
+
+## Reviewer demonstration
+
+After installation and placing the samples as shown above, run the complete cross-platform demonstration from the repository root:
+
+```text
+python scripts/demo.py --sample-dir sample --output runs/demo --profile fast
+```
+
+The script verifies that all three named archives are present, runs the complete unit suite, validates `single_room.zip`, executes the frozen all-sample batch, reads `batch.json`, and prints the key measurements and artifact locations. It uses subprocess argument lists rather than a shell and stops on a failed test or validation command.
+
+The output directory is protected. To deliberately replace a previous demo, append `--overwrite`. If the unit suite was just run separately, append `--skip-tests`. A successful complete demonstration returns exit code `0`; a validation, processing, or evidence failure returns a nonzero code.
 
 ## Validate a capture
 
@@ -182,7 +222,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-The suite currently contains 73 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, batch-discovery, failure-isolation, determinism, staged-output-safety, overwrite-safety, and CLI tests.
+The suite currently contains 79 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, batch-discovery, failure-isolation, demo-flow, determinism, staged-output-safety, overwrite-safety, and CLI tests.
 
 ## Scope boundary
 

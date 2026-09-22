@@ -416,7 +416,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_plane_ransac()`; `classify_plane()`; `detect_floor()`; `detect_ceiling()`; `detect_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces an inspectable outline; unsupported height is `null`; weak convex support is marked provisional; no coordinates or geometry are hard-coded per sample. | **Complete — audited 2026-09-22** |
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_ply()`; `render_floorplan_svg()`/`render_floorplan_png()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Complete — audited 2026-09-22** |
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_outputs()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Complete — audited 2026-09-22** |
-| **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
+| **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Complete — audited 2026-09-22** |
 
 The table is the high-level control board. The sections below are the authoritative detailed checklist and stop conditions for each checkpoint. Status values should be changed only after recording the corresponding implementation evidence; they do not replace the append-only decision log.
 
@@ -494,15 +494,17 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP07 — Submission and demo (2–3 hours plus buffer)
 
-- [ ] Write README setup, commands, architecture, method, limitations, and results.
-- [ ] Include the assignment coverage table and exact reproducibility commands.
-- [ ] Add a concise demo script: validate, run, inspect JSON, open artifacts.
-- [ ] Confirm no local absolute paths or secrets appear in committed outputs.
-- [ ] Test from a clean environment/clone with samples copied into `sample/`.
-- [ ] Review the Git diff and commit history.
-- [ ] Reserve at least 2–3 hours before the deadline for packaging and failure recovery.
+- [x] Write README setup, commands, architecture, method, limitations, and results.
+- [x] Include the assignment coverage table and exact reproducibility commands.
+- [x] Add a concise demo script: validate, run, and inspect batch evidence.
+- [x] Confirm no local absolute paths or secrets appear in tracked source/docs.
+- [x] Test a clean package build/install from a temporary source copy.
+- [x] Review the Git diff and commit history.
+- [x] Preserve the remaining deadline buffer by adding no new algorithm or dependency.
 
 **Definition of submission-ready:** a clean clone installs, tests, runs the sample pipeline, and tells the truth about both results and limitations.
+
+**Completion evidence (2026-09-22):** the final documented command `python scripts/demo.py --sample-dir sample --output runs/submission-demo --profile fast` completed from the repository root. It ran the complete suite, validated `single_room.zip` with zero errors/warnings and 1,715 matched frames, processed all three real samples with the frozen `fast` configuration, returned `OK` with three successes and zero failures, and printed the expected provisional areas/dimensions plus the supported 2.40 m ceiling only for the with-ceiling sample. The final suite contains 79 passing tests, including stale-summary rejection on a failed demo rerun. A no-network temporary packaging audit used `pip install --no-deps --no-build-isolation --target`; the wheel built, installed outside the repository, imported from that target, reported version `0.1.0`, and exposed `validate`, `reconstruct`, `measure`, `run`, and `batch` in CLI help. `batch.json` and every per-capture `result.json` validate against their Pydantic contracts; all three effective configs are equal; and README measurements match the generated evidence. Git hygiene checks found no tracked file over 10 MiB, while `sample/`, `runs/`, and caches remain ignored. Common private-key/API-token patterns, local user-profile paths, and the workspace path do not occur in the tracked source/documentation set. The demo uses only the standard library, shell-free subprocess argument lists, explicit sample checks, overwrite protection, and propagated exit codes. No numerical pipeline code or dependency changed in CP07.
 
 ## Optional work, strictly after all P0 gates pass
 
@@ -941,3 +943,30 @@ Entry template:
 - Evidence/reasoning: Two independent three-capture runs produced byte-identical PLY, top-down PNG, trajectory PNG, SVG, floor-plan PNG, and per-capture Markdown files. Per-capture result objects and the aggregate batch object were equal after durations were removed.
 - Consequences: Runtime evidence remains useful while deterministic geometry and reporting have a precise audit rule. The aggregate Markdown naturally differs where it displays observed durations.
 - Revisit when: Timing moves to a separate benchmark artifact or deterministic-build mode omits it.
+
+### D-041 — Keep the reviewer demo thin, cross-platform, and shell-free
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Add one standard-library `scripts/demo.py` that checks the three supplied filenames, optionally runs tests, validates `single_room`, invokes the existing `batch` CLI, reads `batch.json`, and prints a compact summary. Use `sys.executable` and subprocess argument sequences with no shell.
+- Evidence/reasoning: The exact documented command completed successfully on all real samples and printed the same measurements as the validated batch contract. Six focused tests cover defaults, missing inputs, full command flow, partial-batch evidence, missing summary rejection, and refusal to display stale evidence after a failed rerun.
+- Consequences: The demonstration adds no second pipeline, geometry logic, dependency, platform-specific shell script, or automatic file opening. Existing overwrite and exit-code behavior remains visible to the reviewer.
+- Revisit when: A hosted or packaged demonstration environment replaces repository-local execution.
+
+### D-042 — Make generated contracts the source of truth for submission claims
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: State measurements, ceilings, confidence, and limitations in README only when they can be matched to validated `batch.json` and per-capture `result.json`. Keep generated runs ignored rather than committing workstation-specific evidence bundles.
+- Evidence/reasoning: The final claims audit parsed every generated contract, verified identical configurations, and matched the three areas, dimensions, and ceiling outcomes to README. The input hashes already identify the assessor-supplied data without duplicating hundreds of megabytes in Git.
+- Consequences: The repository stays small and the README remains evidence-led. Reviewers regenerate artifacts locally from their supplied samples rather than trusting opaque committed binaries.
+- Revisit when: The submission instructions explicitly require generated artifacts to be uploaded separately.
+
+### D-043 — Verify packaging offline without altering the development environment
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Copy the package inputs to a temporary directory and install them to a separate target with both build isolation and dependency downloads disabled. Verify import location, version, and full CLI help from that target.
+- Evidence/reasoning: The temporary build produced and installed a `cozmo_scan-0.1.0` wheel using the declared metadata. Import resolved to the temporary target and the CLI exposed all five commands. This checks packaging without mutating the repository environment or depending on network availability.
+- Consequences: The final audit proves the project itself packages cleanly; runtime dependency compatibility remains covered by the real demo and full test suite in the provisioned Python 3.12 environment.
+- Revisit when: A release artifact or fully isolated dependency-resolution test is required by the delivery channel.
