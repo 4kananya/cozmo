@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 import io
+import json
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
+from unittest.mock import patch
 
 from cozmo_scan import __version__
 from cozmo_scan.cli import build_parser, main
+from cozmo_scan.models import ValidationResult
 
 
 class CommandLineTests(unittest.TestCase):
     def test_parser_uses_public_command_name(self) -> None:
         self.assertEqual(build_parser().prog, "cozmo-scan")
+
+    def test_parser_exposes_validate_command(self) -> None:
+        arguments = build_parser().parse_args(["validate", "capture.zip"])
+
+        self.assertEqual(arguments.command, "validate")
+        self.assertEqual(arguments.capture, Path("capture.zip"))
 
     def test_no_arguments_prints_help_and_succeeds(self) -> None:
         output = io.StringIO()
@@ -31,6 +41,26 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 0)
         self.assertEqual(output.getvalue().strip(), f"cozmo-scan {__version__}")
+
+    def test_validate_returns_success_and_prints_json(self) -> None:
+        result = ValidationResult(source="capture.zip", valid=True)
+        output = io.StringIO()
+
+        with patch("cozmo_scan.cli.validate_capture", return_value=result):
+            with redirect_stdout(output):
+                exit_code = main(["validate", "capture.zip", "--json"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(json.loads(output.getvalue())["valid"])
+
+    def test_validate_returns_two_for_invalid_input(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            exit_code = main(["validate", "missing-capture.zip"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Status: INVALID", output.getvalue())
 
 
 if __name__ == "__main__":

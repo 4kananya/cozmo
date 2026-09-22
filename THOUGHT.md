@@ -412,7 +412,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | Checkpoint | What it is about | Main functions or components to build | Concrete deliverable | Completion gate | Current status |
 |---|---|---|---|---|---|
 | **CP01 — Repository foundation** | Make the repository safe to push, install, and test before algorithm work begins. | `.gitignore`; `pyproject.toml`; minimal package entry point; `build_parser()`; `main()`; package version; initial CLI test. Preserve local samples, then remove/migrate the already-committed large objects only with explicit approval. | Small installable Python package; working `python -m cozmo_scan --help`; ignored local samples and generated outputs; safe Git state. | Samples still exist locally; no oversized ZIP remains in ordinary Git history; package imports; CLI help and initial tests pass. | **Complete — audited 2026-09-22** |
-| **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Not started — approval required** |
+| **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Complete — audited 2026-09-22** |
 | **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `fuse_keyframes()`; `downsample_cloud()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Not started — approval required** |
 | **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_dominant_planes()`; `classify_plane()`; `select_floor_plane()`; `select_ceiling_plane()`; `select_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces a plausible outline; unsupported height is `null`; no coordinates or geometry are hard-coded per sample. | **Not started — approval required** |
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
@@ -436,13 +436,15 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP02 — Data contract and validator (1–2 hours)
 
-- [ ] Discover the hash-named root in ZIP and directory modes.
-- [ ] Parse calibration and observed odometry rows, including blanks.
-- [ ] Pair depth/confidence/pose by frame ID.
-- [ ] Produce a validation summary for all three ZIPs without extracting everything.
-- [ ] Add parser and malformed-input tests.
+- [x] Discover the hash-named root in ZIP and directory modes.
+- [x] Parse calibration and observed odometry rows, including blanks.
+- [x] Pair depth/confidence/pose by frame ID.
+- [x] Produce a validation summary for all three ZIPs without extracting everything.
+- [x] Add parser and malformed-input tests.
 
 **Gate:** frame counts and required files match the known inventory. If they do not, fix ingestion before writing geometry.
+
+**Completion evidence (2026-09-22):** 21 unit/CLI tests pass. ZIP and directory inputs use the same read-only code path; unsafe/ambiguous paths are rejected; CSV fields are addressed by header; blank distortion-centre values parse as `None`; missing frame components are reported; and keyframe selection is deterministic. Real-data validation completed without extracting the archives: `single_room.zip` has 1,715 matched frames, 3,689 IMU rows, and 37.17 seconds duration; `single_scan_floor_only.zip` has 5,251 matched frames, 11,397 IMU rows, and 114.78 seconds duration; `single_scan_with_ceiling.zip` has 9,745 matched frames, 21,339 IMU rows, and 214.93 seconds duration. All three returned valid with zero errors and zero warnings, and sampled depth/confidence images were consistently 256 x 192 in `I;16`/`L` modes.
 
 ### CP03 — Metric reconstruction on `single_room.zip` (2–3 hours)
 
@@ -716,3 +718,39 @@ Entry template:
 - Evidence/reasoning: The user referred to the first approved build stage as CP01. Matching that vocabulary prevents approval and progress-report ambiguity.
 - Consequences: The overview table and detailed checkpoint headings use CP01–CP07. Historical references to P0 still mean baseline priority, not a checkpoint number.
 - Revisit when: No revisit is expected unless the checkpoint structure itself changes.
+
+### D-017 — Validate ZIP and directory inputs through one read-only source
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Use one `CaptureSource` boundary that exposes normalized member names, sizes, text, and bytes for both ZIP archives and directories. Do not extract a complete capture during validation.
+- Evidence/reasoning: The three archives contain up to 19,490 depth/confidence PNGs plus video. Direct member access makes validation fast, prevents temporary-disk duplication, and gives one place to reject traversal, absolute, drive-qualified, and duplicate archive paths.
+- Consequences: Later reconstruction can read selected frames from the same source. Code outside `dataset.py` does not need ZIP-specific branches.
+- Revisit when: A downstream library strictly requires filesystem paths and selected-member temporary extraction is measurably simpler.
+
+### D-018 — Inspect three representative image pairs during normal validation
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Decode the first, middle, and last matched depth/confidence pairs during `validate`; inventory all filenames and records but do not decode every image.
+- Evidence/reasoning: Decoding every PNG would turn a quick structural validator into a full-data scan. Three capture-spanning pairs verify dimensions, PNG decoding, pixel modes, and confidence range while keeping validation near-instant on the supplied archives.
+- Consequences: An isolated corrupt image outside the inspected set may be discovered later when reconstruction selects it. The validation result records exactly how many pairs were inspected rather than implying a full pixel audit.
+- Revisit when: A separate explicit deep-validation mode is required or reconstruction exposes meaningful corruption rates.
+
+### D-019 — Allow partial frame mismatch but require at least one complete frame
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Missing depth, confidence, or odometry for individual IDs produces a warning and excludes those IDs; zero fully matched frames is an error.
+- Evidence/reasoning: A mostly complete capture remains reconstructable, while silently pairing lists by position would corrupt geometry. Matching by canonical frame ID makes exclusion explicit and deterministic.
+- Consequences: Inventory and warnings disclose all mismatch counts with bounded ID examples. Duplicate frame IDs remain errors because their intended pairing is ambiguous.
+- Revisit when: Evaluation requirements mandate failure on any missing frame.
+
+### D-020 — Inventory RGB and IMU without making them reconstruction prerequisites
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Validate IMU CSV timestamps and record RGB video presence/size, but do not decode video or require either asset for a valid LiDAR capture.
+- Evidence/reasoning: CP03 reconstructs from depth, confidence, intrinsics, and odometry. Adding FFmpeg or synchronisation logic now would enlarge the dependency and failure surface without supporting the approved checkpoint.
+- Consequences: Missing/invalid optional data creates a warning. RGB decoding remains outside P0 geometry unless a later approved checkpoint demonstrates a need.
+- Revisit when: A validated feature consumes RGB or IMU rather than merely reporting it.

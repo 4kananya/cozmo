@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-Checkpoint CP01, the repository and package foundation, is complete. Capture validation, reconstruction, floor-plan extraction, and final artifact generation are intentionally added in later approved checkpoints. The current CLI therefore exposes package help and version information only.
+CP01 (repository foundation) and CP02 (capture ingestion and validation) are complete. The CLI can now audit a supplied ZIP or extracted capture without unpacking the full archive. Reconstruction, floor-plan extraction, and final artifact generation are intentionally added in later approved checkpoints.
 
 ## Requirements
 
@@ -57,15 +57,33 @@ Local sample fingerprints recorded before repository cleanup:
 
 These hashes identify the locally audited inputs; they are not download credentials or proof of ground truth.
 
-## Run foundation tests
+## Validate a capture
 
-The CP01 tests use only the Python standard library, so they can be run before installing the numerical dependencies:
+Human-readable report:
+
+```powershell
+python -m cozmo_scan validate "sample\single_room.zip"
+```
+
+Machine-readable report:
+
+```powershell
+python -m cozmo_scan validate "sample\single_room.zip" --json
+```
+
+Validation checks capture-root discovery, required files, calibration, odometry, frame matching, optional IMU/RGB presence, and representative depth/confidence images. It reads ZIP members directly and does not extract the complete capture.
+
+Exit codes are `0` for a valid capture, `2` for an input or validation failure, and `1` for an unexpected internal failure. Warnings do not make an otherwise usable capture invalid.
+
+## Run tests
+
+The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
 
 ```text
 python -m unittest discover -s tests -v
 ```
 
-Later checkpoints will add the `validate`, `run`, and `batch` commands only after their implementation and tests exist.
+Later checkpoints will add the `run` and `batch` commands only after their implementation and tests exist.
 
 ## Scope boundary
 
