@@ -120,6 +120,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="replace known measurement artifacts in the output directory",
     )
     measure_parser.set_defaults(handler=handle_measure)
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="generate the complete reviewer-facing artifact bundle",
+        description=(
+            "Validate, reconstruct, measure, evaluate, and write the final "
+            "seven-file result bundle for one capture."
+        ),
+    )
+    run_parser.add_argument(
+        "capture", type=Path, help="validated capture ZIP or directory"
+    )
+    run_parser.add_argument(
+        "--output", type=Path, required=True, help="artifact output directory"
+    )
+    run_parser.add_argument(
+        "--profile",
+        choices=[profile.value for profile in ReconstructionProfile],
+        default=ReconstructionProfile.FAST.value,
+        help="bounded reconstruction profile (default: fast)",
+    )
+    run_parser.add_argument(
+        "--max-frames",
+        type=_positive_int,
+        help="override the profile frame limit for an audited run",
+    )
+    run_parser.add_argument(
+        "--frame-selection",
+        choices=[selection.value for selection in FrameSelection],
+        default=FrameSelection.DISTRIBUTED.value,
+        help="select frames across the capture or from its beginning",
+    )
+    run_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known final artifacts in the output directory",
+    )
+    run_parser.set_defaults(handler=handle_run)
     return parser
 
 
@@ -234,6 +272,48 @@ def handle_measure(arguments: argparse.Namespace) -> int:
     for name, path in paths.items():
         print(f"{name}: {path}")
     for warning in structure.summary.warnings:
+        print(f"WARNING: {warning}")
+    return 0
+
+
+def handle_run(arguments: argparse.Namespace) -> int:
+    """Run the final single-capture product pipeline and artifact writer."""
+    from cozmo_scan.outputs import OutputError, write_run_outputs
+    from cozmo_scan.pipeline import PipelineError, get_pipeline_config, run_pipeline
+
+    try:
+        config = get_pipeline_config(
+            arguments.profile,
+            max_frames=arguments.max_frames,
+            frame_selection=arguments.frame_selection,
+        )
+        execution = run_pipeline(arguments.capture, config)
+        paths = write_run_outputs(
+            execution,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except (OutputError, PipelineError, ValueError) as exc:
+        print(f"Pipeline failed: {exc}", file=sys.stderr)
+        return 2
+
+    result = execution.result
+    plan = result.room.floor_plan
+    provisional = (
+        plan.convex_fill_ratio < result.config.structure.minimum_boundary_fill_ratio
+    )
+    print(f"Status: {result.status.upper()}")
+    print(f"Input SHA-256: {result.input.sha256}")
+    print(
+        f"Floor area{' (convex/provisional)' if provisional else ''}: "
+        f"{plan.area_m2:.2f} square metres"
+    )
+    print(f"Principal dimensions: {plan.length_m:.2f} x {plan.width_m:.2f} metres")
+    print(f"Measurement confidence: {result.quality.measurement_confidence.upper()}")
+    print(f"Total elapsed: {result.timings.total_seconds:.2f} seconds")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    for warning in result.warnings:
         print(f"WARNING: {warning}")
     return 0
 

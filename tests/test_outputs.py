@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -17,6 +18,7 @@ from cozmo_scan.models import (
     ReconstructionProfile,
     ReconstructionStatistics,
     ReconstructionSummary,
+    RunResult,
 )
 from cozmo_scan.outputs import (
     OutputError,
@@ -24,8 +26,10 @@ from cozmo_scan.outputs import (
     write_measurement_outputs,
     write_ply,
     write_reconstruction_outputs,
+    write_run_outputs,
 )
 from cozmo_scan.reconstruction import ReconstructionResult
+from tests.pipeline_factory import make_pipeline_execution
 from tests.structure_factory import make_synthetic_room
 
 
@@ -154,6 +158,48 @@ class ReconstructionOutputTests(unittest.TestCase):
                 self.assertTrue(path.is_file())
             with self.assertRaisesRegex(OutputError, "--overwrite"):
                 write_measurement_outputs(reconstruction, structure, destination)
+
+    def test_final_bundle_is_complete_valid_and_overwrite_protected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "final"
+            execution = make_pipeline_execution(include_ceiling=False)
+
+            paths = write_run_outputs(execution, destination)
+
+            self.assertEqual(len(paths), 7)
+            self.assertEqual(
+                RunResult.model_validate_json(
+                    paths["result"].read_text(encoding="utf-8")
+                ),
+                execution.result,
+            )
+            report = paths["report"].read_text(encoding="utf-8")
+            self.assertIn("Assignment capability coverage", report)
+            self.assertIn("not_implemented", report)
+            self.assertIn("not certified drift", report)
+            with Image.open(paths["trajectory_preview"]) as image:
+                self.assertEqual(image.format, "PNG")
+                self.assertEqual(image.size, (1000, 700))
+            unrelated = destination / "reviewer-note.txt"
+            unrelated.write_text("keep", encoding="utf-8")
+            with self.assertRaisesRegex(OutputError, "--overwrite"):
+                write_run_outputs(execution, destination)
+            write_run_outputs(execution, destination, overwrite=True)
+            self.assertEqual(unrelated.read_text(encoding="utf-8"), "keep")
+
+    def test_failed_staged_render_publishes_no_partial_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "final"
+            execution = make_pipeline_execution()
+
+            with patch(
+                "cozmo_scan.outputs.render_floorplan_png",
+                side_effect=OutputError("injected render failure"),
+            ):
+                with self.assertRaisesRegex(OutputError, "injected"):
+                    write_run_outputs(execution, destination)
+
+            self.assertFalse(destination.exists())
 
 
 if __name__ == "__main__":

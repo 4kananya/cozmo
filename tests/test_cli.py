@@ -56,6 +56,16 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(arguments.output, Path("run"))
         self.assertEqual(arguments.profile, "fast")
 
+    def test_parser_exposes_run_command(self) -> None:
+        arguments = build_parser().parse_args(
+            ["run", "capture.zip", "--output", "final", "--profile", "quality"]
+        )
+
+        self.assertEqual(arguments.command, "run")
+        self.assertEqual(arguments.capture, Path("capture.zip"))
+        self.assertEqual(arguments.output, Path("final"))
+        self.assertEqual(arguments.profile, "quality")
+
     def test_no_arguments_prints_help_and_succeeds(self) -> None:
         output = io.StringIO()
 
@@ -129,6 +139,24 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         self.assertIn("Measurement failed", errors.getvalue())
+
+    def test_run_returns_two_for_missing_input(self) -> None:
+        errors = io.StringIO()
+
+        with redirect_stderr(errors):
+            exit_code = main(
+                [
+                    "run",
+                    "missing-capture.zip",
+                    "--output",
+                    "unused-output",
+                    "--profile",
+                    "test",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Pipeline failed", errors.getvalue())
 
 
 if __name__ == "__main__":

@@ -331,3 +331,121 @@ class StructureSummary(FrozenModel):
     elapsed_seconds: float = Field(ge=0)
     warnings: tuple[str, ...] = ()
     artifacts: dict[str, str] = Field(default_factory=dict)
+
+
+class CapabilityStatus(StrEnum):
+    """Truthful implementation/evaluation status for an assignment capability."""
+
+    SUPPORTED = "supported"
+    SUPPORTED_WITH_LIMITATIONS = "supported_with_limitations"
+    NOT_IMPLEMENTED = "not_implemented"
+    NOT_EVALUATED = "not_evaluated"
+
+
+class PipelineConfig(FrozenModel):
+    """Complete effective configuration for one final product run."""
+
+    reconstruction: ReconstructionConfig
+    structure: StructureConfig = Field(default_factory=StructureConfig)
+
+
+class InputProvenance(FrozenModel):
+    """Stable identity and inventory of the capture supplied to the pipeline."""
+
+    name: str
+    source_kind: Literal["zip", "directory"]
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    hash_kind: Literal["file_bytes", "canonical_directory"]
+    byte_count: int = Field(ge=0)
+    capture_format: Literal["stray_scanner"] = "stray_scanner"
+    inventory: CaptureInventory
+
+
+class SoftwareProvenance(FrozenModel):
+    """Runtime versions needed to reproduce and audit a result."""
+
+    package_name: Literal["cozmo-scan"] = "cozmo-scan"
+    package_version: str
+    python_version: str
+    numpy_version: str
+    pillow_version: str
+    pydantic_version: str
+
+
+class PipelineTimings(FrozenModel):
+    """Observed wall-clock durations; geometry remains deterministic."""
+
+    reconstruction_seconds: float = Field(ge=0)
+    structure_seconds: float = Field(ge=0)
+    total_seconds: float = Field(ge=0)
+
+
+class QualityMetrics(FrozenModel):
+    """Compact evidence used to interpret one room measurement."""
+
+    valid_sampled_depth_ratio: float = Field(ge=0, le=1)
+    voxel_retention_ratio: float = Field(ge=0, le=1)
+    floor_inlier_ratio: float = Field(ge=0, le=1)
+    floor_rmse_m: float = Field(ge=0)
+    floor_world_up_alignment: float = Field(ge=0, le=1)
+    detected_wall_count: int = Field(ge=0)
+    ceiling_available: bool
+    boundary_fill_ratio: float = Field(gt=0, le=1)
+    measurement_confidence: Literal["good", "caution"]
+    closure_proxy_m: float | None = Field(default=None, ge=0)
+    closure_proxy_label: Literal["start_to_end_distance_not_certified_drift"] = (
+        "start_to_end_distance_not_certified_drift"
+    )
+
+
+class CapabilityAssessment(FrozenModel):
+    """One assignment capability with an explicit evidence-based status."""
+
+    capability: str
+    status: CapabilityStatus
+    explanation: str
+
+
+class ArtifactRecord(FrozenModel):
+    """One file in the final reviewer-facing bundle."""
+
+    key: str
+    filename: str
+    media_type: str
+    description: str
+
+
+class ArtifactManifest(FrozenModel):
+    """Expected artifacts written together by the final run command."""
+
+    artifacts: tuple[ArtifactRecord, ...]
+
+
+class RoomResult(FrozenModel):
+    """Final room geometry, measurements, and optional height."""
+
+    floor: PlaneMeasurement
+    ceiling: PlaneMeasurement | None = None
+    walls: tuple[PlaneMeasurement, ...] = ()
+    floor_coordinates: FloorCoordinateSystem
+    floor_plan: FloorPlanMeasurement
+    ceiling_height_m: float | None = Field(default=None, gt=0)
+
+
+class RunResult(FrozenModel):
+    """Versioned, reviewer-facing product result for one capture."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    product: Literal["cozmo-scan"] = "cozmo-scan"
+    status: Literal["ok", "ok_with_warnings"]
+    units: Literal["metre"] = "metre"
+    input: InputProvenance
+    config: PipelineConfig
+    reconstruction: ReconstructionStatistics
+    room: RoomResult
+    quality: QualityMetrics
+    timings: PipelineTimings
+    software: SoftwareProvenance
+    capabilities: tuple[CapabilityAssessment, ...]
+    warnings: tuple[str, ...] = ()
+    artifacts: ArtifactManifest

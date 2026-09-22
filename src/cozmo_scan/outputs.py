@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 
 from cozmo_scan.floorplan import StructureResult
-from cozmo_scan.models import ReconstructionSummary, StructureSummary
+from cozmo_scan.models import (
+    ReconstructionStatistics,
+    ReconstructionSummary,
+    RunResult,
+    StructureSummary,
+)
+from cozmo_scan.pipeline import FINAL_ARTIFACT_RECORDS, PipelineExecution
 from cozmo_scan.reconstruction import ReconstructionResult
 
 POINT_CLOUD_FILENAME = "reconstruction.ply"
@@ -29,6 +36,7 @@ MEASUREMENT_FILENAMES = RECONSTRUCTION_FILENAMES + (
     FLOORPLAN_SVG_FILENAME,
     FLOORPLAN_PNG_FILENAME,
 )
+FINAL_RUN_FILENAMES = tuple(record.filename for record in FINAL_ARTIFACT_RECORDS)
 
 
 class OutputError(ValueError):
@@ -108,6 +116,80 @@ def write_measurement_outputs(
     render_floorplan_png(structure_paths["floorplan_preview"], structure.summary)
     paths.update(structure_paths)
     return paths
+
+
+def write_run_outputs(
+    execution: PipelineExecution,
+    output_directory: str | Path,
+    *,
+    overwrite: bool = False,
+) -> dict[str, Path]:
+    """Stage and publish the complete seven-file reviewer artifact bundle."""
+    directory = Path(output_directory)
+    if directory.exists() and not directory.is_dir():
+        raise OutputError(f"Output path is not a directory: {directory}")
+    conflicts = [
+        directory / filename
+        for filename in FINAL_RUN_FILENAMES
+        if (directory / filename).exists()
+    ]
+    if conflicts and not overwrite:
+        names = ", ".join(path.name for path in conflicts)
+        raise OutputError(
+            f"Output artifacts already exist ({names}); pass --overwrite to replace them"
+        )
+
+    parent = directory.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OutputError(f"Cannot create output parent directory: {parent}") from exc
+
+    with TemporaryDirectory(prefix=".cozmo-scan-stage-", dir=parent) as temporary:
+        staging = Path(temporary)
+        staged_paths = {
+            record.key: staging / record.filename for record in FINAL_ARTIFACT_RECORDS
+        }
+        write_ply(
+            staged_paths["point_cloud"],
+            execution.reconstruction.points_xyz_m,
+        )
+        render_topdown(
+            staged_paths["topdown_preview"],
+            execution.reconstruction.points_xyz_m,
+            execution.reconstruction.trajectory_xyz_m,
+        )
+        render_trajectory(
+            staged_paths["trajectory_preview"],
+            execution.reconstruction.trajectory_xyz_m,
+            execution.reconstruction.summary.statistics,
+        )
+        render_floorplan_svg(
+            staged_paths["floorplan_vector"],
+            execution.structure.summary,
+        )
+        render_floorplan_png(
+            staged_paths["floorplan_preview"],
+            execution.structure.summary,
+        )
+        write_report(staged_paths["report"], execution.result)
+        write_result_json(staged_paths["result"], execution.result)
+
+        missing = [path.name for path in staged_paths.values() if not path.is_file()]
+        if missing:
+            raise OutputError(
+                f"Staged artifact set is incomplete: {', '.join(missing)}"
+            )
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            for record in FINAL_ARTIFACT_RECORDS:
+                staged_paths[record.key].replace(directory / record.filename)
+        except OSError as exc:
+            raise OutputError(f"Cannot publish run artifacts to: {directory}") from exc
+
+    return {
+        record.key: directory / record.filename for record in FINAL_ARTIFACT_RECORDS
+    }
 
 
 def write_ply(path: str | Path, points_xyz_m: NDArray[np.floating]) -> None:
@@ -229,6 +311,242 @@ def write_structure_summary(path: str | Path, summary: StructureSummary) -> None
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise OutputError(f"Cannot write structure summary: {destination}") from exc
+
+
+def write_result_json(path: str | Path, result: RunResult) -> None:
+    """Write the versioned final result atomically as UTF-8 JSON."""
+    destination = Path(path)
+    temporary = destination.with_name(f"{destination.name}.tmp")
+    try:
+        temporary.write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        temporary.replace(destination)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise OutputError(f"Cannot write final result JSON: {destination}") from exc
+
+
+def write_report(path: str | Path, result: RunResult) -> None:
+    """Write a self-contained Markdown report for a human reviewer."""
+    plan = result.room.floor_plan
+    area_label = (
+        "Convex floor area (provisional)"
+        if plan.convex_fill_ratio < result.config.structure.minimum_boundary_fill_ratio
+        else "Floor area"
+    )
+    ceiling = (
+        "Not available — no ceiling plane passed the evidence checks."
+        if result.room.ceiling_height_m is None
+        else f"{result.room.ceiling_height_m:.2f} m"
+    )
+    warnings = (
+        "\n".join(f"- {warning}" for warning in result.warnings)
+        if result.warnings
+        else "- None"
+    )
+    capabilities = "\n".join(
+        f"| `{item.capability}` | `{item.status.value}` | {_markdown_cell(item.explanation)} |"
+        for item in result.capabilities
+    )
+    artifacts = "\n".join(
+        f"| `{item.filename}` | {item.description} |"
+        for item in result.artifacts.artifacts
+    )
+    inventory = result.input.inventory
+    report = f"""# Cozmo Scan Result
+
+## Executive summary
+
+- Status: `{result.status}`
+- Input: `{result.input.name}`
+- Profile: `{result.config.reconstruction.profile.value}`
+- Measurement confidence: `{result.quality.measurement_confidence}`
+- {area_label}: **{plan.area_m2:.2f} m²**
+- Principal dimensions: **{plan.length_m:.2f} × {plan.width_m:.2f} m**
+- Perimeter: **{plan.perimeter_m:.2f} m**
+- Ceiling height: **{ceiling}**
+
+This is an offline geometric estimate from the supplied LiDAR depth, confidence, intrinsics, and recorded poses. It is not a certified survey and no ground-truth dimensions were supplied.
+
+## Input and provenance
+
+| Field | Value |
+|---|---|
+| Capture format | `{result.input.capture_format}` |
+| Source kind | `{result.input.source_kind}` |
+| SHA-256 | `{result.input.sha256}` |
+| Hash method | `{result.input.hash_kind}` |
+| Input bytes | {result.input.byte_count:,} |
+| Matched frames | {inventory.matched_frame_count:,} |
+| Capture duration | {_optional_seconds(inventory.duration_seconds)} |
+| Package version | `{result.software.package_version}` |
+| Python version | `{result.software.python_version}` |
+
+## Measurements
+
+| Measurement | Value |
+|---|---:|
+| {area_label} | {plan.area_m2:.2f} m² |
+| Principal length | {plan.length_m:.2f} m |
+| Principal width | {plan.width_m:.2f} m |
+| Perimeter | {plan.perimeter_m:.2f} m |
+| Ceiling height | {ceiling} |
+| Detected wall planes | {len(result.room.walls)} |
+| Polygon vertices | {len(plan.vertices_xy_m)} |
+
+## Quality evidence
+
+| Evidence | Value |
+|---|---:|
+| Valid sampled depth | {result.quality.valid_sampled_depth_ratio:.1%} |
+| Points retained after voxel fusion | {result.quality.voxel_retention_ratio:.1%} |
+| Floor support | {result.quality.floor_inlier_ratio:.1%} |
+| Floor-plane RMSE | {result.quality.floor_rmse_m:.3f} m |
+| Floor/world-up alignment | {result.quality.floor_world_up_alignment:.5f} |
+| Occupied support inside convex outline | {result.quality.boundary_fill_ratio:.1%} |
+| Camera path length | {_optional_metres(result.reconstruction.trajectory_path_length_m)} |
+| Start-to-end distance | {_optional_metres(result.quality.closure_proxy_m)} |
+
+The start-to-end value is only a closure proxy. It is **not certified drift** and is not an accuracy score.
+
+## Warnings
+
+{warnings}
+
+## Artifacts
+
+| File | Purpose |
+|---|---|
+{artifacts}
+
+## Method
+
+The pipeline validates the capture, selects deterministic keyframes, filters depth by confidence and range, scales camera intrinsics to the depth resolution, back-projects metric points, transforms them with recorded camera-to-world poses, and voxel-downsamples the fused cloud. It then detects a camera-relative floor, an optional evidence-supported ceiling, and gravity-aligned wall planes. Floor inliers are projected to a local frame, isolated occupancy cells are removed, and a simplified convex hull is measured and rendered.
+
+## Assignment capability coverage
+
+| Capability | Status | Explanation |
+|---|---|---|
+{capabilities}
+
+## Limitations
+
+- The floor boundary is convex and can bridge concave or unscanned regions.
+- Measurements are internal geometric estimates; absolute accuracy was not evaluated because no reference dimensions were supplied.
+- Furniture, reflective surfaces, pose error, incomplete coverage, and LiDAR noise can affect the result.
+- Missing evidence remains unavailable rather than being replaced with zero or an invented value.
+- Damage, concealed conditions, and repair scope require validated labelled evidence that is not present in the supplied data.
+
+## Reproduce this run
+
+```text
+python -m cozmo_scan run "<capture-path>/{result.input.name}" --output <output-directory> --profile {result.config.reconstruction.profile.value}
+```
+"""
+    destination = Path(path)
+    temporary = destination.with_name(f"{destination.name}.tmp")
+    try:
+        temporary.write_text(report, encoding="utf-8")
+        temporary.replace(destination)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise OutputError(f"Cannot write Markdown report: {destination}") from exc
+
+
+def render_trajectory(
+    path: str | Path,
+    trajectory_xyz_m: NDArray[np.floating],
+    statistics: ReconstructionStatistics,
+    *,
+    width: int = 1000,
+    height: int = 700,
+) -> None:
+    """Render the X-Z camera path and explicitly labelled closure proxy."""
+    trajectory = np.asarray(trajectory_xyz_m, dtype=np.float64)
+    if trajectory.ndim != 2 or trajectory.shape[1] != 3 or len(trajectory) == 0:
+        raise OutputError("Trajectory must be a non-empty array with shape (N, 3)")
+    trajectory = trajectory[np.isfinite(trajectory).all(axis=1)]
+    if len(trajectory) == 0:
+        raise OutputError("Trajectory contains no finite positions")
+
+    panel_width = 300
+    x_values = trajectory[:, 0]
+    z_values = trajectory[:, 2]
+    x_min, x_max = _pad_axis_range(float(x_values.min()), float(x_values.max()))
+    z_min, z_max = _pad_axis_range(float(z_values.min()), float(z_values.max()))
+    available_width = width - panel_width - 100
+    available_height = height - 100
+    scale = min(
+        available_width / max(x_max - x_min, 1e-9),
+        available_height / max(z_max - z_min, 1e-9),
+    )
+    centre_x = (x_min + x_max) / 2
+    centre_z = (z_min + z_max) / 2
+    pixels = [
+        (
+            round((float(point[0]) - centre_x) * scale + (width - panel_width) / 2),
+            round(-(float(point[2]) - centre_z) * scale + height / 2),
+        )
+        for point in trajectory
+    ]
+
+    image = Image.new("RGB", (width, height), (248, 250, 252))
+    drawing = ImageDraw.Draw(image)
+    drawing.rounded_rectangle(
+        (25, 25, width - panel_width - 25, height - 25),
+        radius=14,
+        fill=(255, 255, 255),
+        outline=(203, 213, 225),
+        width=2,
+    )
+    if len(pixels) > 1:
+        drawing.line(pixels, fill=(37, 99, 235), width=4)
+    _draw_marker(drawing, pixels[0], 7, (22, 163, 74))
+    _draw_marker(drawing, pixels[-1], 7, (220, 38, 38))
+    scale_start = (60, height - 60)
+    scale_end = (round(scale_start[0] + scale), height - 60)
+    drawing.line((*scale_start, *scale_end), fill=(21, 34, 56), width=4)
+    drawing.line((scale_start[0], height - 68, scale_start[0], height - 52), fill=(21, 34, 56), width=3)
+    drawing.line((scale_end[0], height - 68, scale_end[0], height - 52), fill=(21, 34, 56), width=3)
+
+    panel_x = width - panel_width + 25
+    drawing.line((width - panel_width, 25, width - panel_width, height - 25), fill=(203, 213, 225), width=2)
+    title_font = _load_font(24, bold=True)
+    value_font = _load_font(17, bold=True)
+    label_font = _load_font(14)
+    drawing.text((panel_x, 55), "CAMERA TRAJECTORY", fill=(21, 34, 56), font=title_font)
+    drawing.text((panel_x, 125), "Path length", fill=(37, 56, 88), font=label_font)
+    drawing.text(
+        (panel_x, 150),
+        _optional_metres(statistics.trajectory_path_length_m),
+        fill=(11, 110, 79),
+        font=value_font,
+    )
+    drawing.text((panel_x, 210), "Start-to-end distance", fill=(37, 56, 88), font=label_font)
+    drawing.text(
+        (panel_x, 235),
+        _optional_metres(statistics.closure_proxy_m),
+        fill=(11, 110, 79),
+        font=value_font,
+    )
+    drawing.text((panel_x, 295), "Not certified drift", fill=(185, 28, 28), font=label_font)
+    drawing.text((panel_x, 350), "Green: start", fill=(22, 101, 52), font=label_font)
+    drawing.text((panel_x, 378), "Red: end", fill=(153, 27, 27), font=label_font)
+    drawing.text(
+        ((scale_start[0] + scale_end[0]) // 2, height - 80),
+        "1 metre",
+        fill=(21, 34, 56),
+        anchor="mm",
+        font=label_font,
+    )
+
+    destination = Path(path)
+    temporary = destination.with_name(f"{destination.name}.tmp")
+    try:
+        image.save(temporary, format="PNG")
+        temporary.replace(destination)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise OutputError(f"Cannot write trajectory PNG: {destination}") from exc
 
 
 def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
@@ -559,6 +877,18 @@ def _load_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
         return ImageFont.truetype(filename, size=size)
     except OSError:
         return ImageFont.load_default()
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
+def _optional_seconds(value: float | None) -> str:
+    return "Not available" if value is None else f"{value:.2f} s"
+
+
+def _optional_metres(value: float | None) -> str:
+    return "Not available" if value is None else f"{value:.2f} m"
 
 
 def _robust_axis_range(values: NDArray[np.floating]) -> tuple[float, float]:

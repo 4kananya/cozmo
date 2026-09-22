@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), and CP04 (structural planes and measured convex floor plan) are complete. The CLI can validate, reconstruct, and measure a supplied ZIP or extracted capture without unpacking the full archive. The final versioned product bundle and all-sample batch runner are intentionally added in later approved checkpoints.
+CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), CP04 (structural planes and measured convex floor plan), and CP05 (complete single-capture artifact bundle) are complete. The CLI can validate, reconstruct, measure, or produce a reviewer-ready result from a supplied ZIP or extracted capture. The all-sample batch runner remains an approved later checkpoint.
 
 ## Requirements
 
@@ -127,6 +127,30 @@ The floor polygon is deliberately a convex baseline. `convex_fill_ratio` reports
 
 The audited `single_room.zip` fast run found a near-horizontal floor with 14,640 inliers, 20.6% cloud support, and 1.6 cm fit RMSE. It found six supported vertical planes and no credible ceiling. Its convex outline is approximately 7.44 x 6.59 m and 34.73 m², but occupied support is only 46.8%; the area is therefore explicitly reported as provisional rather than as a certified room measurement.
 
+## Generate the complete result bundle
+
+The primary single-capture product command is:
+
+```powershell
+python -m cozmo_scan run `
+  "sample\single_room.zip" `
+  --output "runs\single-room-final" `
+  --profile fast
+```
+
+It writes exactly seven reviewer-facing artifacts:
+
+- `result.json`: versioned result contract containing input SHA-256, inventory, effective parameters, reconstruction statistics, structural measurements, quality evidence, runtime versions, warnings, assignment capability statuses, and artifact manifest;
+- `reconstruction.ply`: metric XYZ point cloud;
+- `topdown.png`: point-density and camera-path overview;
+- `trajectory.png`: dedicated path rendering whose start-to-end distance is explicitly labelled as a closure proxy, not certified drift;
+- `floorplan.svg` and `floorplan.png`: vector and raster measured-plan views;
+- `report.md`: self-contained human-readable result, evidence, method, limitations, artifact guide, and assignment coverage.
+
+The final output is staged before publication. Existing known artifacts require `--overwrite`, and unrelated files in the destination are preserved. ZIP provenance is the SHA-256 of the exact archive bytes. Directory provenance uses a deterministic hash over sorted normalized member names and contents. Local absolute paths are not stored in the final result.
+
+The final schema explicitly marks unsupported features such as photo-only reconstruction, damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing as `not_implemented`; ground-truth accuracy and multi-room stitching are `not_evaluated`. Missing measurements remain `null`.
+
 ## Run tests
 
 The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
@@ -135,7 +159,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-The suite currently contains 50 validation, reconstruction, structural-geometry, rendering, determinism, output-safety, and CLI tests. Later checkpoints will add the final `run` and `batch` commands only after their implementation and tests exist.
+The suite currently contains 58 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, determinism, staged-output-safety, and CLI tests. A later checkpoint will add the `batch` command only after its implementation and tests exist.
 
 ## Scope boundary
 

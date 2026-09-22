@@ -414,7 +414,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Complete — audited 2026-09-22** |
 | **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `voxel_downsample()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Complete — audited 2026-09-22** |
 | **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_plane_ransac()`; `classify_plane()`; `detect_floor()`; `detect_ceiling()`; `detect_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces an inspectable outline; unsupported height is `null`; weak convex support is marked provisional; no coordinates or geometry are hard-coded per sample. | **Complete — audited 2026-09-22** |
-| **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
+| **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_ply()`; `render_floorplan_svg()`/`render_floorplan_png()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Complete — audited 2026-09-22** |
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
 | **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
 
@@ -471,12 +471,14 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP05 — Stable artifact bundle (1–2 hours)
 
-- [ ] Define Pydantic models and schema version.
-- [ ] Write JSON, PLY, SVG/PNG, plots, and Markdown report.
-- [ ] Include effective parameters, versions, hash, warnings, and unsupported capabilities.
-- [ ] Add explicit overwrite protection and useful exit codes.
+- [x] Define Pydantic models and schema version.
+- [x] Write JSON, PLY, SVG/PNG, plots, and Markdown report.
+- [x] Include effective parameters, versions, hash, warnings, and unsupported capabilities.
+- [x] Add explicit overwrite protection and useful exit codes.
 
 **Gate:** a reviewer can understand the result without opening source code.
+
+**Completion evidence (2026-09-22):** 58 tests pass. The final `run` command validates, hashes, reconstructs, measures, evaluates, and stages a seven-file bundle. Tests cover result-schema round trips, exact and canonical-directory hashes, truthful capability statuses, nullable ceiling preservation, report wording, trajectory rendering, manifest completeness, overwrite protection, unrelated-file preservation, and an injected render failure that publishes no partial directory. The real `single_room.zip` fast run finished in 2.41 seconds on the first audited run and produced the recorded SHA-256 `0805f742...e9699c`, exactly matching the prior fingerprint. The manifest and directory contain the same seven names; JSON validates; SVG parses; all PNGs verify; and the report clearly labels the 34.73 m² convex area provisional, ceiling unavailable, and the 3.18 m start/end distance as not certified drift. A second independent run had byte-identical PLY, top-down PNG, trajectory PNG, SVG, floor-plan PNG, and Markdown report; `result.json` matched after removing observed timings. A real rerun without `--overwrite` returned exit code 2 and named all conflicts. Both reviewer-facing PNGs were visually inspected.
 
 ### CP06 — All samples and regression fixes (2–3 hours)
 
@@ -847,3 +849,48 @@ Entry template:
 - Evidence/reasoning: CP04 needs an auditable real-data path before CP05 defines the final product schema/report. Reusing `reconstruct_capture()` avoids a second geometry pipeline, and overwrite protection covers all known files.
 - Consequences: CP05 will compose these functions into the final `run` result rather than replace them. `measure` remains useful for low-level diagnosis; it is not yet the full assignment artifact contract.
 - Revisit when: CP05 finalizes command naming and reviewer workflow.
+
+### D-031 — Make `run` the primary single-capture product command
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Add `cozmo-scan run` as a thin orchestration path over the existing validator, reconstruction, and structural-analysis functions. Keep `validate`, `reconstruct`, and `measure` as lower-level diagnostic commands.
+- Evidence/reasoning: A reviewer needs one command and one stable bundle, while each earlier command remains useful for isolating ingestion, transform, or measurement failures. The real final run completes in a few seconds without duplicating numerical logic.
+- Consequences: `pipeline.py` owns composition and public-result construction only. Geometry remains in its existing modules, and CP06 can reuse `run_pipeline()` rather than introduce a second batch code path.
+- Revisit when: Final usability testing shows that the diagnostic commands confuse rather than help the reviewer.
+
+### D-032 — Publish a versioned evidence-carrying final result
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Define immutable Pydantic models for input/software provenance, effective configuration, reconstruction evidence, room geometry, quality metrics, timings, capability assessments, warnings, and a seven-file artifact manifest under schema version `1.0.0`.
+- Evidence/reasoning: A drawing alone cannot communicate missing ceiling evidence, provisional convex area, processing parameters, or unsupported assignment features. The model round-trips from JSON in tests and preserves every CP02–CP04 warning.
+- Consequences: Unsupported capabilities are explicit `not_implemented` or `not_evaluated` records instead of invented empty detections. Missing ceiling values remain `null`, and consumers have a stable machine-readable contract.
+- Revisit when: A backward-incompatible field change is necessary; if so, increment the schema version rather than silently changing meaning.
+
+### D-033 — Record reproducible provenance without local absolute paths
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Hash ZIP inputs byte-for-byte and directory inputs through sorted normalized member names, lengths, and contents. Store only the input basename, hash method, byte count, capture inventory, package/dependency versions, and effective parameters.
+- Evidence/reasoning: The real run reproduced the known `single_room.zip` SHA-256 exactly. Canonical-directory tests prove creation order does not change the digest and content changes do. Absolute workstation paths add no reproducibility value and can leak local details.
+- Consequences: ZIP and extracted-directory hashes intentionally use different definitions and declare `hash_kind`. Final JSON/report contains no local absolute path.
+- Revisit when: A standard external manifest format is required for cross-container ZIP/directory equivalence.
+
+### D-034 — Stage the complete artifact set before publication
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Render all seven final artifacts inside a temporary sibling directory, verify that every expected file exists, then move only known files into the requested output directory. Refuse conflicts without `--overwrite` and preserve unrelated destination files.
+- Evidence/reasoning: A late SVG/PNG/report failure must not leave a plausible-looking partial product. The injected render-failure test leaves no destination directory; complete/overwrite tests preserve an unrelated reviewer note.
+- Consequences: Publication is all-render-before-move and atomic per file, though an operating-system failure during the final sequence could still move only part of the staged set. That residual limitation is acceptable for the local deadline baseline.
+- Revisit when: The product needs transactional publication across filesystems or concurrent writers.
+
+### D-035 — Separate deterministic evidence from observed runtime
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Keep observed reconstruction, structure, and total durations in `result.json`, but include no generated timestamp. Require geometry, reports, and renderings to be deterministic; compare final JSON after excluding the timing object.
+- Evidence/reasoning: Two real final runs produced byte-identical PLY, top-down PNG, trajectory PNG, floor-plan SVG/PNG, and Markdown report. Their final JSON matched after removing timings, while elapsed seconds naturally differed.
+- Consequences: Reviewers retain useful performance evidence without pretending wall-clock duration is deterministic. Result consumers know exactly which field varies between equivalent runs.
+- Revisit when: A formal reproducible-build profile chooses to omit timings entirely or stores them outside the result contract.
