@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-Checkpoint CP01 establishes the repository and package foundation. Capture validation, reconstruction, floor-plan extraction, and final artifact generation are intentionally added in later approved checkpoints. The current CLI therefore exposes package help and version information only.
+Checkpoint CP01, the repository and package foundation, is complete. Capture validation, reconstruction, floor-plan extraction, and final artifact generation are intentionally added in later approved checkpoints. The current CLI therefore exposes package help and version information only.
 
 ## Requirements
 
@@ -70,4 +70,3 @@ Later checkpoints will add the `validate`, `run`, and `batch` commands only afte
 ## Scope boundary
 
 The deadline baseline targets the three supplied LiDAR captures. It does not claim validated photo-only reconstruction, damage classification, concealed-condition prediction, automated repair scope, or multi-room stitching. Unsupported capabilities will be represented explicitly in the final result contract instead of returning fabricated values.
-

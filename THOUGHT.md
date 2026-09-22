@@ -411,28 +411,30 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 
 | Checkpoint | What it is about | Main functions or components to build | Concrete deliverable | Completion gate | Current status |
 |---|---|---|---|---|---|
-| **0 — Repository foundation** | Make the repository safe to push, install, and test before algorithm work begins. | `.gitignore`; `pyproject.toml`; minimal package entry point; `build_parser()`; `main()`; package version; initial CLI test. Preserve local samples, then remove/migrate the already-committed large objects only with explicit approval. | Small installable Python package; working `python -m cozmo_scan --help`; ignored local samples and generated outputs; safe Git state. | Samples still exist locally; no oversized ZIP remains in ordinary Git history; package imports; CLI help and initial tests pass. | **Not started — approval required** |
-| **1 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Not started — approval required** |
-| **2 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `fuse_keyframes()`; `downsample_cloud()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Not started — approval required** |
-| **3 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_dominant_planes()`; `classify_plane()`; `select_floor_plane()`; `select_ceiling_plane()`; `select_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces a plausible outline; unsupported height is `null`; no coordinates or geometry are hard-coded per sample. | **Not started — approval required** |
-| **4 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
-| **5 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
-| **6 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
+| **CP01 — Repository foundation** | Make the repository safe to push, install, and test before algorithm work begins. | `.gitignore`; `pyproject.toml`; minimal package entry point; `build_parser()`; `main()`; package version; initial CLI test. Preserve local samples, then remove/migrate the already-committed large objects only with explicit approval. | Small installable Python package; working `python -m cozmo_scan --help`; ignored local samples and generated outputs; safe Git state. | Samples still exist locally; no oversized ZIP remains in ordinary Git history; package imports; CLI help and initial tests pass. | **Complete — audited 2026-09-22** |
+| **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Not started — approval required** |
+| **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `fuse_keyframes()`; `downsample_cloud()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Not started — approval required** |
+| **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_dominant_planes()`; `classify_plane()`; `select_floor_plane()`; `select_ceiling_plane()`; `select_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces a plausible outline; unsupported height is `null`; no coordinates or geometry are hard-coded per sample. | **Not started — approval required** |
+| **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
+| **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
+| **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
 
 The table is the high-level control board. The sections below are the authoritative detailed checklist and stop conditions for each checkpoint. Status values should be changed only after recording the corresponding implementation evidence; they do not replace the append-only decision log.
 
-### Checkpoint 0 — Repair repository hygiene (30–60 minutes)
+### CP01 — Repair repository hygiene (30–60 minutes)
 
-- [ ] Confirm whether the initial large-file commit exists on the remote.
-- [ ] Preserve all three local sample archives.
-- [ ] With explicit approval, remove ordinary-Git copies from history or choose Git LFS.
-- [ ] Add `.gitignore` for samples, runs, extracted files, caches, environments, and IDE files.
-- [ ] Add the package/test skeleton and `pyproject.toml`.
-- [ ] Verify `git status` shows only intended source files.
+- [x] Confirm whether the initial large-file commit exists on the remote.
+- [x] Preserve all three local sample archives.
+- [x] With explicit approval, remove ordinary-Git copies from history or choose Git LFS.
+- [x] Add `.gitignore` for samples, runs, extracted files, caches, environments, and IDE files.
+- [x] Add the package/test skeleton and `pyproject.toml`.
+- [x] Verify `git status` shows only intended source files.
 
 **Stop condition:** do not try a normal GitHub push while the 276.8 MB and 508.5 MB ZIP objects remain in ordinary Git history.
 
-### Checkpoint 1 — Data contract and validator (1–2 hours)
+**Completion evidence (2026-09-22):** the configured remote returned no branch heads; the unpublished root commit was amended to `021253a`; all three ZIPs remain present locally and match the SHA-256 values recorded in `README.md`; `sample/` is ignored and absent from the reachable Git tree; the package imports; `python -m cozmo_scan --help` and `--version` work; all three foundation tests pass; and the working tree was clean immediately after the amended commit.
+
+### CP02 — Data contract and validator (1–2 hours)
 
 - [ ] Discover the hash-named root in ZIP and directory modes.
 - [ ] Parse calibration and observed odometry rows, including blanks.
@@ -442,7 +444,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 **Gate:** frame counts and required files match the known inventory. If they do not, fix ingestion before writing geometry.
 
-### Checkpoint 2 — Metric reconstruction on `single_room.zip` (2–3 hours)
+### CP03 — Metric reconstruction on `single_room.zip` (2–3 hours)
 
 - [ ] Implement intrinsic scaling, depth conversion, back-projection, and pose transform.
 - [ ] Add synthetic numerical tests.
@@ -452,7 +454,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 **Stop condition:** if geometry is mirrored, exploded, or scaled incorrectly, do not tune RANSAC. Resolve transform/intrinsic conventions first.
 
-### Checkpoint 3 — Structural geometry and measurements (2–4 hours)
+### CP04 — Structural geometry and measurements (2–4 hours)
 
 - [ ] Fit and classify dominant planes.
 - [ ] Select a credible floor and optional ceiling.
@@ -462,7 +464,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 **Fallback:** if wall-plane intersections are unstable, ship the supported floor-point hull with a warning. Do not create complex topology code under deadline pressure.
 
-### Checkpoint 4 — Stable artifact bundle (1–2 hours)
+### CP05 — Stable artifact bundle (1–2 hours)
 
 - [ ] Define Pydantic models and schema version.
 - [ ] Write JSON, PLY, SVG/PNG, plots, and Markdown report.
@@ -471,7 +473,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 **Gate:** a reviewer can understand the result without opening source code.
 
-### Checkpoint 5 — All samples and regression fixes (2–3 hours)
+### CP06 — All samples and regression fixes (2–3 hours)
 
 - [ ] Run the same frozen `fast` profile on all three archives.
 - [ ] Generate a batch summary table.
@@ -481,7 +483,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 **Stop condition:** if one sample cannot yield a credible ceiling or wall, report the missing output and warning. Do not tune thresholds until the picture merely looks nice.
 
-### Checkpoint 6 — Submission and demo (2–3 hours plus buffer)
+### CP07 — Submission and demo (2–3 hours plus buffer)
 
 - [ ] Write README setup, commands, architecture, method, limitations, and results.
 - [ ] Include the assignment coverage table and exact reproducibility commands.
@@ -696,3 +698,21 @@ Entry template:
 - Evidence/reasoning: Clean-clone testing, documentation, packaging, and Git failures commonly appear at the end and are part of the deliverable.
 - Consequences: Optional algorithm improvements are dropped before documentation or reproducibility work.
 - Revisit when: The deadline changes in writing.
+
+### D-015 — Keep supplied captures as ignored external data
+
+- Date: 2026-09-22
+- Status: supersedes the unresolved storage choice in D-011
+- Decision: Preserve all supplied ZIPs in the local ignored `sample/` directory and remove them from the unpublished ordinary-Git root commit. Do not use Git LFS for the assessment baseline.
+- Evidence/reasoning: The configured remote had no branch heads, the assessor already distributes the samples separately, and two archives exceed GitHub's ordinary 100 MiB limit. Local SHA-256 values were recorded before the commit was amended.
+- Consequences: A fresh clone remains small and requires the user to copy the supplied archives into `sample/`. The former large blobs may remain temporarily as unreachable local Git objects until normal garbage collection, but they are not reachable from `main` and will not be pushed with it.
+- Revisit when: The assessor explicitly requires the sample binaries to be distributed from this repository.
+
+### D-016 — Label implementation checkpoints CP01 through CP07
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Use the user-facing labels CP01 through CP07, with CP01 representing the repository foundation that was originally numbered Checkpoint 0.
+- Evidence/reasoning: The user referred to the first approved build stage as CP01. Matching that vocabulary prevents approval and progress-report ambiguity.
+- Consequences: The overview table and detailed checkpoint headings use CP01–CP07. Historical references to P0 still mean baseline priority, not a checkpoint number.
+- Revisit when: No revisit is expected unless the checkpoint structure itself changes.
