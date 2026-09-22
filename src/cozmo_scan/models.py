@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 class FrozenModel(BaseModel):
@@ -85,6 +85,14 @@ class FrameMatchResult(FrozenModel):
     missing_odometry_ids: tuple[str, ...] = ()
 
 
+class CaptureIndex(FrozenModel):
+    """Calibration and matched frame records needed by reconstruction."""
+
+    capture_root: str
+    camera_matrix: CameraMatrix
+    frames: tuple[FrameRecord, ...]
+
+
 class ImageInspection(FrozenModel):
     """Properties observed while decoding one image."""
 
@@ -153,3 +161,72 @@ class ValidationResult(FrozenModel):
     @property
     def warning_count(self) -> int:
         return sum(issue.severity is IssueSeverity.WARNING for issue in self.issues)
+
+
+class ReconstructionProfile(StrEnum):
+    """Bounded processing profiles for reconstruction."""
+
+    TEST = "test"
+    FAST = "fast"
+    QUALITY = "quality"
+
+
+class FrameSelection(StrEnum):
+    """Deterministic frame-selection strategies used during audit runs."""
+
+    DISTRIBUTED = "distributed"
+    CONTIGUOUS_START = "contiguous-start"
+
+
+class ReconstructionConfig(FrozenModel):
+    """Effective metric reconstruction configuration."""
+
+    profile: ReconstructionProfile
+    frame_selection: FrameSelection = FrameSelection.DISTRIBUTED
+    max_frames: int = Field(gt=0)
+    pixel_stride: int = Field(gt=0)
+    voxel_size_m: float = Field(gt=0)
+    minimum_confidence: int = Field(ge=0, le=2)
+    minimum_depth_m: float = Field(gt=0)
+    maximum_depth_m: float = Field(gt=0)
+    calibration_width: int = Field(gt=0)
+    calibration_height: int = Field(gt=0)
+    fusion_batch_frames: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_depth_range(self) -> ReconstructionConfig:
+        if self.maximum_depth_m <= self.minimum_depth_m:
+            raise ValueError("maximum_depth_m must exceed minimum_depth_m")
+        return self
+
+
+class ReconstructionStatistics(FrozenModel):
+    """Counts and geometric evidence from one reconstruction."""
+
+    total_matched_frames: int = Field(ge=0)
+    selected_frame_count: int = Field(ge=0)
+    processed_frame_count: int = Field(ge=0)
+    skipped_frame_count: int = Field(ge=0)
+    sampled_pixel_count: int = Field(ge=0)
+    valid_point_count_before_voxel: int = Field(ge=0)
+    output_point_count: int = Field(ge=0)
+    bounds_min_xyz_m: tuple[float, float, float] | None = None
+    bounds_max_xyz_m: tuple[float, float, float] | None = None
+    trajectory_start_xyz_m: tuple[float, float, float] | None = None
+    trajectory_end_xyz_m: tuple[float, float, float] | None = None
+    trajectory_path_length_m: float | None = Field(default=None, ge=0)
+    closure_proxy_m: float | None = Field(default=None, ge=0)
+
+
+class ReconstructionSummary(FrozenModel):
+    """Machine-readable diagnostic summary for CP03 output."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    status: Literal["ok", "ok_with_warnings"]
+    units: Literal["metre"] = "metre"
+    source: str
+    config: ReconstructionConfig
+    statistics: ReconstructionStatistics
+    elapsed_seconds: float = Field(ge=0)
+    warnings: tuple[str, ...] = ()
+    artifacts: dict[str, str] = Field(default_factory=dict)

@@ -13,6 +13,7 @@ from PIL import Image, UnidentifiedImageError
 
 from cozmo_scan.models import (
     CameraMatrix,
+    CaptureIndex,
     CaptureInventory,
     FrameMatchResult,
     FrameRecord,
@@ -436,6 +437,47 @@ def select_keyframes(
         for position in range(max_frames)
     )
     return tuple(candidates[index] for index in selected_indices)
+
+
+def build_capture_index(source: CaptureSource) -> CaptureIndex:
+    """Build the validated calibration/frame index used by reconstruction."""
+    capture_root = discover_capture_root(source.members)
+    members = set(source.members)
+    camera_member = _join_member(capture_root, CAMERA_MATRIX_FILE)
+    odometry_member = _join_member(capture_root, ODOMETRY_FILE)
+    missing = [
+        member
+        for member in (camera_member, odometry_member)
+        if member not in members
+    ]
+    if missing:
+        raise CaptureError(f"Missing required files: {', '.join(missing)}")
+
+    camera_matrix = read_camera_matrix(source, camera_member)
+    odometry = read_odometry(source, odometry_member)
+    issues: list[ValidationIssue] = []
+    depth_paths = _index_frame_members(
+        source, capture_root, DEPTH_DIRECTORY, issues
+    )
+    confidence_paths = _index_frame_members(
+        source, capture_root, CONFIDENCE_DIRECTORY, issues
+    )
+    errors = [
+        issue.message
+        for issue in issues
+        if issue.severity is IssueSeverity.ERROR
+    ]
+    if errors:
+        raise CaptureError("; ".join(errors))
+
+    matches = match_frames(depth_paths, confidence_paths, odometry)
+    if not matches.frames:
+        raise CaptureError("No frame has depth, confidence, and odometry together")
+    return CaptureIndex(
+        capture_root=capture_root,
+        camera_matrix=camera_matrix,
+        frames=matches.frames,
+    )
 
 
 def inventory_capture(

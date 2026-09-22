@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-CP01 (repository foundation) and CP02 (capture ingestion and validation) are complete. The CLI can now audit a supplied ZIP or extracted capture without unpacking the full archive. Reconstruction, floor-plan extraction, and final artifact generation are intentionally added in later approved checkpoints.
+CP01 (repository foundation), CP02 (capture validation), and CP03 (metric point-cloud reconstruction) are complete. The CLI can audit and reconstruct a supplied ZIP or extracted capture without unpacking the full archive. Structural plane/floor-plan extraction and the final product artifact bundle are intentionally added in later approved checkpoints.
 
 ## Requirements
 
@@ -75,6 +75,35 @@ Validation checks capture-root discovery, required files, calibration, odometry,
 
 Exit codes are `0` for a valid capture, `2` for an input or validation failure, and `1` for an unexpected internal failure. Warnings do not make an otherwise usable capture invalid.
 
+## Reconstruct a metric point cloud
+
+Run the bounded baseline profile:
+
+```powershell
+python -m cozmo_scan reconstruct `
+  "sample\single_room.zip" `
+  --output "runs\single-room-fast" `
+  --profile fast
+```
+
+The output directory contains:
+
+- `reconstruction.ply`: binary little-endian XYZ point cloud in metres;
+- `topdown.png`: X-Z density view with the camera trajectory in red, start in green, and end in blue;
+- `reconstruction.json`: effective parameters, counts, bounds, trajectory evidence, runtime, warnings, and artifact names.
+
+Profiles deliberately bound work:
+
+| Profile | Maximum frames | Pixel stride | Voxel size |
+|---|---:|---:|---:|
+| `test` | 10 | 8 | 8 cm |
+| `fast` | 200 | 4 | 4 cm |
+| `quality` | 500 | 2 | 2 cm |
+
+Frames are distributed across the capture by default. `--max-frames` may lower or override the profile limit for audited diagnostic runs. `--frame-selection contiguous-start` exists only to verify nearby-pose overlap. Existing known artifacts are protected unless `--overwrite` is supplied.
+
+CP03 uses NumPy, Pillow, and the recorded depth/pose data directly. It does not require Open3D, SciPy, Matplotlib, RGB decoding, a GPU, or network access.
+
 ## Run tests
 
 The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
@@ -83,7 +112,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-Later checkpoints will add the `run` and `batch` commands only after their implementation and tests exist.
+Later checkpoints will add structural measurements and the final `run` and `batch` commands only after their implementation and tests exist.
 
 ## Scope boundary
 

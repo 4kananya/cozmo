@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import json
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +23,28 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(arguments.command, "validate")
         self.assertEqual(arguments.capture, Path("capture.zip"))
+
+    def test_parser_exposes_reconstruct_command(self) -> None:
+        arguments = build_parser().parse_args(
+            [
+                "reconstruct",
+                "capture.zip",
+                "--output",
+                "run",
+                "--profile",
+                "test",
+                "--max-frames",
+                "3",
+                "--frame-selection",
+                "contiguous-start",
+            ]
+        )
+
+        self.assertEqual(arguments.command, "reconstruct")
+        self.assertEqual(arguments.output, Path("run"))
+        self.assertEqual(arguments.profile, "test")
+        self.assertEqual(arguments.max_frames, 3)
+        self.assertEqual(arguments.frame_selection, "contiguous-start")
 
     def test_no_arguments_prints_help_and_succeeds(self) -> None:
         output = io.StringIO()
@@ -61,6 +83,24 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         self.assertIn("Status: INVALID", output.getvalue())
+
+    def test_reconstruct_returns_two_for_missing_input(self) -> None:
+        errors = io.StringIO()
+
+        with redirect_stderr(errors):
+            exit_code = main(
+                [
+                    "reconstruct",
+                    "missing-capture.zip",
+                    "--output",
+                    "unused-output",
+                    "--profile",
+                    "test",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Reconstruction failed", errors.getvalue())
 
 
 if __name__ == "__main__":

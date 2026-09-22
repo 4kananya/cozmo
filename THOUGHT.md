@@ -225,12 +225,11 @@ The exact stride, depth range, voxel size, RANSAC threshold, and minimum support
 
 - Python 3.12;
 - NumPy for arrays and vectorized projection;
-- SciPy for rotations, spatial hulls, and numerical helpers;
-- Open3D for point-cloud downsampling, plane fitting, and PLY output;
 - Pillow for 16-bit depth and confidence PNGs;
 - Pydantic for the versioned result/config contract;
-- Matplotlib for deterministic SVG/PNG plots;
 - pytest as the only required development dependency.
+
+CP03 demonstrated that quaternion rotation, point fusion, deterministic voxel centroids, binary PLY output, and diagnostic PNG rendering are small and testable with NumPy/Pillow. SciPy may be added in CP04 only if its convex hull is selected. Open3D and Matplotlib are not baseline requirements unless a later measured need justifies them.
 
 Do not add OpenCV, Shapely, scikit-image, pandas, Jinja2, PyTorch, CUDA, web frameworks, or database packages to P0. Do not make FFmpeg a requirement while RGB is unused. HTML output is not necessary; SVG/PNG plus Markdown is enough.
 
@@ -413,7 +412,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 |---|---|---|---|---|---|
 | **CP01 — Repository foundation** | Make the repository safe to push, install, and test before algorithm work begins. | `.gitignore`; `pyproject.toml`; minimal package entry point; `build_parser()`; `main()`; package version; initial CLI test. Preserve local samples, then remove/migrate the already-committed large objects only with explicit approval. | Small installable Python package; working `python -m cozmo_scan --help`; ignored local samples and generated outputs; safe Git state. | Samples still exist locally; no oversized ZIP remains in ordinary Git history; package imports; CLI help and initial tests pass. | **Complete — audited 2026-09-22** |
 | **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Complete — audited 2026-09-22** |
-| **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `fuse_keyframes()`; `downsample_cloud()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Not started — approval required** |
+| **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `voxel_downsample()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Complete — audited 2026-09-22** |
 | **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_dominant_planes()`; `classify_plane()`; `select_floor_plane()`; `select_ceiling_plane()`; `select_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces a plausible outline; unsupported height is `null`; no coordinates or geometry are hard-coded per sample. | **Not started — approval required** |
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
@@ -448,13 +447,15 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP03 — Metric reconstruction on `single_room.zip` (2–3 hours)
 
-- [ ] Implement intrinsic scaling, depth conversion, back-projection, and pose transform.
-- [ ] Add synthetic numerical tests.
-- [ ] Process at most 50 frames first and write a PLY/top-down preview.
-- [ ] Confirm visually that floor/walls form coherent surfaces and units are plausible.
-- [ ] Raise to the `fast` bound only after the small run is correct.
+- [x] Implement intrinsic scaling, depth conversion, back-projection, and pose transform.
+- [x] Add synthetic numerical tests.
+- [x] Process at most 50 frames first and write a PLY/top-down preview.
+- [x] Confirm visually that floor/walls form coherent surfaces and units are plausible.
+- [x] Raise to the `fast` bound only after the small run is correct.
 
 **Stop condition:** if geometry is mirrored, exploded, or scaled incorrectly, do not tune RANSAC. Resolve transform/intrinsic conventions first.
+
+**Completion evidence (2026-09-22):** the approved ladder passed at 1 frame, 10 contiguous frames, 10 distributed frames, 50 distributed frames, and finally the 200-frame `fast` profile. The contiguous 10-frame bounds remained nearly identical to the one-frame bounds, supporting the pose direction and nearby-frame overlap. The 50-frame preview showed coherent repeated planar/rectangular structure with finite room-scale bounds. The final `single_room.zip` fast run processed all 200 selected frames in 2.01 seconds: 614,400 sampled pixels, 599,538 valid points before voxel fusion, and 70,928 output points. Bounds were approximately 9.31 x 2.90 x 7.19 m; trajectory path length was 14.49 m; the start/end distance was recorded only as a 3.18 m closure proxy. The binary PLY was about 851 KB, JSON about 1.5 KB, and the PNG preview about 83 KB. No warnings or skipped frames occurred. A repeated fast run produced byte-identical PLY and PNG SHA-256 hashes. All 37 synthetic, integration, CLI, and output tests passed after implementation.
 
 ### CP04 — Structural geometry and measurements (2–4 hours)
 
@@ -521,7 +522,7 @@ Explicitly out of scope for this deadline even if P0 is early: training a model,
 | Convex hull overfills concavity | Known limitation | Medium | quality warning; optional grid boundary only after P0 |
 | No ceiling in floor-only scan | Expected | Low | `null` plus explanation, not failure |
 | Point cloud looks good but measurements are wrong | Medium | High | top-down evidence, plane residuals, units, sanity bounds, manual QA |
-| Open3D install/runtime problem | Low/medium | High | use a supported Python 3.12 wheel; time-box diagnosis; only then fall back to NumPy/SciPy RANSAC and a small ASCII PLY writer |
+| Structural plane fitting is unstable without a geometry framework | Medium | High | begin CP04 with tested NumPy RANSAC; add SciPy/Open3D only if measured evidence shows the small implementation is insufficient |
 | Scope expands during implementation | High | Critical | enforce checkpoint gates and append every material scope change below |
 | No ground truth prevents accuracy score | Certain | Medium | report repeatability/internal fit metrics and state the limitation |
 
@@ -754,3 +755,48 @@ Entry template:
 - Evidence/reasoning: CP03 reconstructs from depth, confidence, intrinsics, and odometry. Adding FFmpeg or synchronisation logic now would enlarge the dependency and failure surface without supporting the approved checkpoint.
 - Consequences: Missing/invalid optional data creates a warning. RGB decoding remains outside P0 geometry unless a later approved checkpoint demonstrates a need.
 - Revisit when: A validated feature consumes RGB or IMU rather than merely reporting it.
+
+### D-021 — Use a NumPy-first reconstruction and defer heavy geometry dependencies
+
+- Date: 2026-09-22
+- Status: supersedes the CP03 dependency portion of D-008
+- Decision: Implement projection, quaternion rotation, point transformation, voxel centroids, binary PLY output, and PNG diagnostics with NumPy and Pillow. Remove SciPy, Open3D, and Matplotlib from current runtime dependencies.
+- Evidence/reasoning: Each CP03 operation is small and has an exact numerical test. The 200-frame real run completed in 2.01 seconds and produced a 70,928-point cloud without a geometry framework.
+- Consequences: Installation remains small and CPU-only. CP04 may add SciPy for a convex hull or Open3D only after showing a specific measured need.
+- Revisit when: The tested small implementation cannot meet a CP04 correctness or runtime requirement.
+
+### D-022 — Apply the recorded pose as camera-to-world
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Back-project depth into OpenCV-style camera coordinates and transform points directly with the normalized quaternion/translation matrix `T_WC`.
+- Evidence/reasoning: The Stray reference implementation names the recorded pose `T_WC` and supplies its inverse to APIs that expect a world-to-camera extrinsic. Exact identity/rotation/translation tests pass; 10 contiguous real frames overlap within nearly unchanged bounds; distributed 50/200-frame clouds remain finite and structurally coherent.
+- Consequences: No automatic transform guessing or sample-specific axis switch exists. If later plane evidence contradicts world-up assumptions, the convention must be re-audited rather than silently flipped.
+- Revisit when: CP04 plane orientation or independent reference geometry provides contradictory evidence.
+
+### D-023 — Use explicit bounded reconstruction profiles
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Define `test`, `fast`, and `quality` profiles centrally, with frame limits of 10/200/500, pixel strides of 8/4/2, and voxel sizes of 8/4/2 cm respectively. Fuse fixed frame batches and voxel-downsample between batches.
+- Evidence/reasoning: The largest sample has 9,745 frames. The bounds make runtime and memory predictable while distributing selected frames over the full capture. The fast single-room run sampled 614,400 pixels rather than every pixel in all frames.
+- Consequences: Fine detail is intentionally traded for bounded repeatability. Every effective value is serialized in `reconstruction.json`; an explicit `--max-frames` override is also recorded.
+- Revisit when: Cross-sample evaluation shows insufficient structural support or excessive detail loss.
+
+### D-024 — Retain a low-level reconstruction diagnostic command
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Add `cozmo-scan reconstruct` as an auditable lower-level command that writes PLY, top-down PNG, and diagnostic JSON before the final `run` product command exists.
+- Evidence/reasoning: Transform and scale errors must be inspectable independently of CP04 floor-plan logic. The three small artifacts provide geometry, a visual check, and machine-readable evidence without a UI.
+- Consequences: CP05 will compose this tested core rather than replacing it. Existing artifacts require `--overwrite`, and only the three known filenames are replaced.
+- Revisit when: The final CLI becomes confusing; if so, retain the function API and document the command as advanced diagnostics.
+
+### D-025 — Keep contiguous-start selection only as an audit mode
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Default to capture-spanning deterministic selection, but expose `--frame-selection contiguous-start` for nearby-pose overlap checks.
+- Evidence/reasoning: Distributed frames test global coverage, while the approved CP03 ladder also required 10 nearby frames to isolate local transform correctness. The nearby run stayed within the one-frame bounds and did not explode.
+- Consequences: Product runs remain distributed. Contiguous-start is documented as diagnostic, and the selected mode is serialized with the configuration.
+- Revisit when: The transform convention is independently validated and the audit flag no longer provides useful debugging value.

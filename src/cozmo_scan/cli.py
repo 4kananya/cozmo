@@ -9,7 +9,7 @@ from pathlib import Path
 
 from cozmo_scan import __version__
 from cozmo_scan.dataset import validate_capture
-from cozmo_scan.models import ValidationResult
+from cozmo_scan.models import FrameSelection, ReconstructionProfile, ValidationResult
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +44,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="emit the complete structured validation result as JSON",
     )
     validate_parser.set_defaults(handler=handle_validate)
+
+    reconstruct_parser = subparsers.add_parser(
+        "reconstruct",
+        help="build a bounded metric point cloud and diagnostic preview",
+        description=(
+            "Fuse selected LiDAR depth frames using recorded camera poses and "
+            "write CP03 diagnostic artifacts."
+        ),
+    )
+    reconstruct_parser.add_argument(
+        "capture", type=Path, help="validated capture ZIP or directory"
+    )
+    reconstruct_parser.add_argument(
+        "--output", type=Path, required=True, help="artifact output directory"
+    )
+    reconstruct_parser.add_argument(
+        "--profile",
+        choices=[profile.value for profile in ReconstructionProfile],
+        default=ReconstructionProfile.FAST.value,
+        help="bounded processing profile (default: fast)",
+    )
+    reconstruct_parser.add_argument(
+        "--max-frames",
+        type=_positive_int,
+        help="override the profile frame limit for an audited diagnostic run",
+    )
+    reconstruct_parser.add_argument(
+        "--frame-selection",
+        choices=[selection.value for selection in FrameSelection],
+        default=FrameSelection.DISTRIBUTED.value,
+        help="select frames across the capture or from its beginning",
+    )
+    reconstruct_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known reconstruction artifacts in the output directory",
+    )
+    reconstruct_parser.set_defaults(handler=handle_reconstruct)
     return parser
 
 
@@ -71,6 +109,45 @@ def handle_validate(arguments: argparse.Namespace) -> int:
     else:
         print(format_validation_report(result))
     return 0 if result.valid else 2
+
+
+def handle_reconstruct(arguments: argparse.Namespace) -> int:
+    """Run metric reconstruction and write its CP03 diagnostic artifacts."""
+    from cozmo_scan.outputs import OutputError, write_reconstruction_outputs
+    from cozmo_scan.reconstruction import (
+        ReconstructionError,
+        get_profile_config,
+        reconstruct_capture,
+    )
+
+    try:
+        config = get_profile_config(
+            arguments.profile,
+            max_frames=arguments.max_frames,
+            frame_selection=arguments.frame_selection,
+        )
+        result = reconstruct_capture(arguments.capture, config)
+        paths = write_reconstruction_outputs(
+            result,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except (OutputError, ReconstructionError, ValueError) as exc:
+        print(f"Reconstruction failed: {exc}", file=sys.stderr)
+        return 2
+
+    statistics = result.summary.statistics
+    print(f"Status: {result.summary.status.upper()}")
+    print(f"Selected frames: {statistics.selected_frame_count}")
+    print(f"Processed frames: {statistics.processed_frame_count}")
+    print(f"Valid points before voxel: {statistics.valid_point_count_before_voxel}")
+    print(f"Output points: {statistics.output_point_count}")
+    print(f"Elapsed: {result.summary.elapsed_seconds:.2f} seconds")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    for warning in result.summary.warnings:
+        print(f"WARNING: {warning}")
+    return 0
 
 
 def format_validation_report(result: ValidationResult) -> str:
@@ -130,3 +207,10 @@ def _format_image(
         return "not available"
     mode_text = ", ".join(modes) if modes else "unknown mode"
     return f"{size[0]} x {size[1]} ({mode_text})"
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed
