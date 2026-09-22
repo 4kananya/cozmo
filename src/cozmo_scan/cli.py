@@ -196,6 +196,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="replace known batch and per-capture artifacts",
     )
     batch_parser.set_defaults(handler=handle_batch)
+
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="compare completed batch results with independent ground truth",
+        description=(
+            "Load a batch artifact directory and a strict ground-truth manifest, "
+            "then write assignment-gate, repeatability, and compliance evidence."
+        ),
+    )
+    evaluate_parser.add_argument(
+        "batch_directory",
+        type=Path,
+        help="directory containing batch.json and per-capture result.json files",
+    )
+    evaluate_parser.add_argument(
+        "--ground-truth",
+        type=Path,
+        required=True,
+        help="independently measured ground-truth JSON manifest",
+    )
+    evaluate_parser.add_argument(
+        "--output", type=Path, required=True, help="evaluation artifact directory"
+    )
+    evaluate_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known evaluation artifacts in the output directory",
+    )
+    evaluate_parser.set_defaults(handler=handle_evaluate)
     return parser
 
 
@@ -398,6 +427,43 @@ def handle_batch(arguments: argparse.Namespace) -> int:
     for name, path in paths.items():
         print(f"{name}: {path}")
     return 0 if summary.failed_count == 0 else 2
+
+
+def handle_evaluate(arguments: argparse.Namespace) -> int:
+    """Evaluate existing results without changing the reconstruction pipeline."""
+    from cozmo_scan.benchmark import (
+        EvaluationError,
+        run_evaluation,
+        write_evaluation_outputs,
+    )
+
+    try:
+        evaluation = run_evaluation(
+            arguments.batch_directory,
+            arguments.ground_truth,
+        )
+        paths = write_evaluation_outputs(
+            evaluation,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except EvaluationError as exc:
+        print(f"Evaluation failed: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Status: {evaluation.status.upper()}")
+    print(f"Declared captures: {evaluation.capture_count}")
+    print(f"Matched results: {evaluation.matched_result_count}")
+    print(f"Passed comparisons: {evaluation.passed_count}")
+    print(f"Failed comparisons: {evaluation.failed_count}")
+    print(f"Missing predictions: {evaluation.missing_prediction_count}")
+    print(f"Not evaluated: {evaluation.not_evaluated_count}")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    for warning in evaluation.warnings:
+        print(f"WARNING: {warning}")
+    # A generated report is a successful command even when a product gate fails.
+    return 0
 
 
 def format_validation_report(result: ValidationResult) -> str:

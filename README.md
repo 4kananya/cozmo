@@ -6,7 +6,7 @@ The project was built as a checkpoint-gated assessment. The detailed scope, audi
 
 ## Current status
 
-All seven planned checkpoints are complete: repository foundation, capture validation, metric reconstruction, structural measurement, the final single-capture bundle, all-sample validation, and submission verification. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, or run the same frozen configuration across a directory of captures.
+The seven baseline delivery checkpoints are complete. CP08 adds a ground-truth benchmark and compliance evaluator without changing the frozen reconstruction mathematics. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, run the same configuration across a directory, and score published results when independent measurements are provided.
 
 ## Architecture
 
@@ -32,6 +32,9 @@ outputs.py          publish the seven-file result bundle
         ^
         |
 batch.py            discover captures and reuse the same pipeline sequentially
+        |
+        v
+benchmark.py        compare published results with independent truth and exact gates
 ```
 
 `models.py` contains the immutable versioned contracts, while `cli.py` contains only command parsing and user-facing orchestration. Numerical logic is not duplicated in the CLI, batch runner, or demo script.
@@ -214,6 +217,21 @@ The audited frozen-profile run completed all three supplied archives. All three 
 
 These are internal geometric estimates, not ground-truth accuracy claims. In particular, the floor-only capture remains honestly nullable rather than receiving an inferred ceiling.
 
+## Evaluate against independent ground truth
+
+After a batch run, compare its published `result.json` files with real survey/tape/laser measurements:
+
+```powershell
+python -m cozmo_scan evaluate `
+  "runs\demo" `
+  --ground-truth "benchmark\ground-truth.local.json" `
+  --output "runs\evaluation"
+```
+
+The command writes `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md`. It reports absolute/percentage error, the applicable assignment gate, missing predictions, phantom openings, repeatability, and interval-calibration availability. Creating the report successfully returns exit code `0`; inspect the report's `passed`, `failed_gates`, or `incomplete` product status to determine the benchmark outcome.
+
+No real ground-truth values were supplied with the three archives, so the repository does not invent them. The strict manifest format, a clearly fictional example, measurement rules, and exact encoded thresholds are documented in [benchmark/README.md](benchmark/README.md). Current named-wall/opening and numerical-interval checks remain honestly missing or not evaluated until those predictions and real reference data exist.
+
 ## Run tests
 
 The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
@@ -222,7 +240,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-The suite currently contains 79 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, batch-discovery, failure-isolation, demo-flow, determinism, staged-output-safety, overwrite-safety, and CLI tests.
+The suite includes validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, batch-discovery, failure-isolation, demo-flow, determinism, staged-output-safety, overwrite-safety, benchmark-contract, gate, repeatability, and CLI tests.
 
 ## Scope boundary
 

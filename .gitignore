@@ -4,6 +4,7 @@
 /outputs/
 /artifacts/
 /extracted/
+/benchmark/*.local.json
 
 # Python environments and package output
 /.venv/
@@ -31,4 +32,3 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
-

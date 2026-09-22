@@ -417,6 +417,10 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_ply()`; `render_floorplan_svg()`/`render_floorplan_png()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Complete — audited 2026-09-22** |
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_outputs()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Complete — audited 2026-09-22** |
 | **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Complete — audited 2026-09-22** |
+| **CP08 — Ground-truth benchmark and compliance evaluator** | Add an honest scoring layer over existing results without changing reconstruction mathematics. | Ground-truth manifest models; result/truth matching; absolute and percentage errors; assignment-gate evaluation; repeatability checks; confidence-interval coverage; compliance matrix; `evaluate` CLI command. | `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md` generated from a real measurement manifest and an existing batch run. | Synthetic truth tests pass; missing/phantom measurements are counted rather than hidden; unsupported gates remain `not_evaluated`; no sample measurements are fabricated; CP01–CP07 regressions pass. | **Complete — audited 2026-09-23** |
+| **CP09 — Floor-plan 2.0: concavity and room segmentation** | Replace the knowingly overfilled convex outline when scan support is sufficient, while preserving the safe fallback. | Occupancy-grid cleanup; connected components; contour tracing; topology validation; concave polygon simplification; optional room-region segmentation; before/after support metrics. | More faithful concave floor outlines and explicit fallback evidence in the existing artifact contract. | Synthetic L/U-shaped tests pass; polygons are simple and deterministic; real support improves without unstable slivers; convex fallback still works. | **Proposed — approval required** |
+| **CP10 — Openings and adjacency** | Detect and represent doors/windows/open wall transitions so the plan covers the assignment's opening requirements. | Wall-aligned evidence profiles; opening proposal/filtering; width measurement; missed/phantom-ready IDs; wall/opening schema; adjacency graph; renderer/report updates. | Named openings with widths, confidence/evidence, and room adjacency in JSON and plans. | Synthetic openings are measured within tolerance; weak evidence returns unavailable rather than a guess; CP08 can score named openings including phantoms. | **Proposed — approval required** |
+| **CP11 — Drift correction and ablation** | Add a bounded optional correction pass and prove whether it improves results compared with recorded poses as-is. | Overlap selection; lightweight pose/point alignment; correction acceptance gate; raw/corrected dual run; residual/closure/repeatability comparison; ablation report. | Explicit drift-correction-on/off benchmark evidence with automatic rollback when correction is worse. | Synthetic perturbation is improved; unchanged good poses remain stable; real-data ablation is reproducible; no accuracy claim is made without ground truth. | **Proposed — approval required** |
 
 The table is the high-level control board. The sections below are the authoritative detailed checklist and stop conditions for each checkpoint. Status values should be changed only after recording the corresponding implementation evidence; they do not replace the append-only decision log.
 
@@ -505,6 +509,57 @@ The table is the high-level control board. The sections below are the authoritat
 **Definition of submission-ready:** a clean clone installs, tests, runs the sample pipeline, and tells the truth about both results and limitations.
 
 **Completion evidence (2026-09-22):** the final documented command `python scripts/demo.py --sample-dir sample --output runs/submission-demo --profile fast` completed from the repository root. It ran the complete suite, validated `single_room.zip` with zero errors/warnings and 1,715 matched frames, processed all three real samples with the frozen `fast` configuration, returned `OK` with three successes and zero failures, and printed the expected provisional areas/dimensions plus the supported 2.40 m ceiling only for the with-ceiling sample. The final suite contains 79 passing tests, including stale-summary rejection on a failed demo rerun. A no-network temporary packaging audit used `pip install --no-deps --no-build-isolation --target`; the wheel built, installed outside the repository, imported from that target, reported version `0.1.0`, and exposed `validate`, `reconstruct`, `measure`, `run`, and `batch` in CLI help. `batch.json` and every per-capture `result.json` validate against their Pydantic contracts; all three effective configs are equal; and README measurements match the generated evidence. Git hygiene checks found no tracked file over 10 MiB, while `sample/`, `runs/`, and caches remain ignored. Common private-key/API-token patterns, local user-profile paths, and the workspace path do not occur in the tracked source/documentation set. The demo uses only the standard library, shell-free subprocess argument lists, explicit sample checks, overwrite protection, and propagated exit codes. No numerical pipeline code or dependency changed in CP07.
+
+### CP08 — Ground-truth benchmark and compliance evaluator (1–2 hours)
+
+- [x] Define a strict, versioned manifest for survey/tape/laser truth without adding invented sample values.
+- [x] Load successful `result.json` files from an existing `batch.json` and match them to truth by capture name.
+- [x] Score available area, principal dimensions, ceiling height, named wall lengths, and named opening widths.
+- [x] Encode the assignment thresholds exactly where they apply; mark unspecified or unsupported gates `not_evaluated`.
+- [x] Count missing predictions and phantom openings explicitly.
+- [x] Evaluate repeated-capture ceiling/wall spread and confidence-interval coverage when those inputs exist.
+- [x] Write machine-readable evaluation, reviewer report, and requirement-to-evidence compliance matrix.
+- [x] Add an `evaluate` CLI command, focused unit/CLI tests, benchmark instructions, and README usage.
+- [x] Re-run the full test suite and a real batch-result evaluation with a deliberately incomplete, clearly synthetic audit manifest.
+
+**Gate:** CP08 must never turn current fit residuals or quality labels into ground-truth accuracy. A successful evaluator run may still report `failed_gates` or `incomplete`; the CLI should fail only when it cannot create a valid evaluation.
+
+**Approved scope (2026-09-23):** add a separate evaluator over CP06/CP07 artifacts. Freeze all numerical reconstruction and floor-plan functions. Add no dependency. Do not create a fake `ground-truth.json` for the supplied samples.
+
+**Completion evidence (2026-09-23):** 97 tests pass, including 18 CP08 contract, error, exact-threshold-boundary, missing/phantom-opening, repeatability-versus-accuracy, interval-coverage, batch/result-integrity, staged-publication, overwrite, and CLI tests. `evaluate` reads strict versioned truth plus existing `batch.json`/`result.json` contracts and writes `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md`. A real artifact-path smoke audit loaded all three existing `runs/demo` results, verified their bound input SHA-256 values, and published all three valid outputs; it correctly returned product status `incomplete` and protocol warnings for a deliberately fictional LiDAR-only/no-repeat manifest. That temporary manifest was then removed and its output remains ignored; no fabricated ground truth is tracked. A no-network package build/import exposed the new command. `dataset.py`, `reconstruction.py`, `floorplan.py`, `pipeline.py`, `outputs.py`, `batch.py`, and `models.py` are byte-for-byte unchanged from CP07, and no dependency was added.
+
+### CP09 — Floor-plan 2.0: concavity and room segmentation (2–4 hours)
+
+- [ ] Build a cleaned floor-occupancy mask from existing projected support.
+- [ ] Trace deterministic outer and inner contours and reject invalid/self-intersecting polygons.
+- [ ] Simplify while protecting corners and narrow transitions.
+- [ ] Segment credible connected room regions only when evidence supports more than one.
+- [ ] Compare supported-area ratio and topology against the convex baseline.
+- [ ] Preserve the convex hull as an explicit fallback.
+
+**Gate:** no implementation before a separate checkpoint overview and explicit approval. Do not replace a stable convex result with a visually attractive but topologically invalid contour.
+
+### CP10 — Openings and adjacency (2–4 hours)
+
+- [ ] Assign stable IDs to supported wall segments.
+- [ ] Build height/occupancy evidence profiles along walls.
+- [ ] Propose and validate door/window/open-transition gaps with width and uncertainty evidence.
+- [ ] Represent rooms, walls, openings, and adjacency in the public result contract.
+- [ ] Render openings without implying unsupported classifications.
+- [ ] Connect the new predictions to CP08's opening gate and phantom/miss accounting.
+
+**Gate:** no implementation before a separate checkpoint overview and explicit approval. Missing structure or occlusion must yield unavailable/low confidence, never an invented opening.
+
+### CP11 — Drift correction and ablation (2–4 hours)
+
+- [ ] Measure overlap candidates and baseline residuals using recorded poses.
+- [ ] Apply a small, bounded correction only to sufficiently supported overlaps.
+- [ ] Reject corrections that worsen structural residual, consistency, or physical plausibility.
+- [ ] Run identical inputs with correction off and on.
+- [ ] Publish configuration, residual, closure-proxy, and ground-truth/repeatability comparisons.
+- [ ] Keep the original recorded-pose result reproducible as the control.
+
+**Gate:** no implementation before a separate checkpoint overview and explicit approval. A lower closure proxy alone is not proof of accuracy; keep correction disabled unless the ablation supplies broader evidence.
 
 ## Optional work, strictly after all P0 gates pass
 
@@ -970,3 +1025,57 @@ Entry template:
 - Evidence/reasoning: The temporary build produced and installed a `cozmo_scan-0.1.0` wheel using the declared metadata. Import resolved to the temporary target and the CLI exposed all five commands. This checks packaging without mutating the repository environment or depending on network availability.
 - Consequences: The final audit proves the project itself packages cleanly; runtime dependency compatibility remains covered by the real demo and full test suite in the provisioned Python 3.12 environment.
 - Revisit when: A release artifact or fully isolated dependency-resolution test is required by the delivery channel.
+
+### D-044 — Keep ground-truth evaluation above the frozen pipeline
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Implement CP08 as `benchmark.py`, which reads published `batch.json` and per-capture `result.json` contracts. Do not modify capture ingestion, reconstruction, floor-plan mathematics, final-result construction, output rendering, or batch execution.
+- Evidence/reasoning: The existing three-capture baseline is deterministic and already audited. Accuracy evaluation needs independent reference data and matching logic, not a second geometry path. The final diff leaves every numerical and CP05/CP06 pipeline module unchanged.
+- Consequences: CP08 can expose current limitations without moving the baseline. Future wall/opening predictions can enter through a versioned result contract and reuse the evaluator.
+- Revisit when: CP09 or CP10 makes a backward-incompatible result-schema change; version and migrate the prediction adapter explicitly.
+
+### D-045 — Encode only thresholds stated by the assignment
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Gate ceiling height at 0.015 m absolute error, openings at 0.02 m and 85% aggregate including misses/phantoms, photo named-wall length at 8%, video named-wall length at 3%, repeated ceiling spread at 0.01 m, and repeated wall spread at 0.01 m or 0.5%. Report floor-area/principal-dimension errors diagnostically, with no invented gate; likewise define no LiDAR wall or interval-coverage threshold.
+- Evidence/reasoning: Applying a linear wall percentage to area, treating fit residual as accuracy, or choosing an arbitrary LiDAR/coverage threshold would make an unsupported pass/fail claim. Boundary tests cover every encoded accuracy threshold.
+- Consequences: Many current LiDAR comparisons are honestly `not_evaluated` even when an error can be calculated. This is less flattering but auditable.
+- Revisit when: The assessor supplies an authoritative additional threshold; record its source and version before changing the gate.
+
+### D-046 — Do not reinterpret anonymous planes as named walls or openings
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Normalize current results to scalar area/dimensions/height but leave the named-wall and named-opening maps empty. Do not match RANSAC plane order or convex polygon edges to physical wall/opening IDs.
+- Evidence/reasoning: Current wall planes have no stable physical identity or finite wall-length measurement, and the pipeline does not detect openings. Positional matching would create plausible but false correspondence and corrupt repeatability/phantom accounting.
+- Consequences: Real wall/opening truth produces explicit `missing_prediction`; the opening aggregate counts misses and future phantom IDs correctly. CP10 must introduce stable IDs and evidence before these gates can pass.
+- Revisit when: A versioned room topology provides persistent wall/opening identities and tested association across repeated captures.
+
+### D-047 — Separate evaluator execution success from product-gate success
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Return CLI exit code 0 when a valid evaluation was produced, even if `evaluation.json` status is `failed_gates` or `incomplete`. Return 2 for invalid/missing/unsafe inputs or output conflicts, and 1 only at the existing unexpected-error boundary.
+- Evidence/reasoning: A failed accuracy gate is a valid benchmark result, not a tool crash. Conflating the two would make automated runs discard precisely the evidence the evaluator exists to publish.
+- Consequences: CI and reviewers must inspect the product status for quality decisions. The CLI and report state this rule explicitly.
+- Revisit when: A separate `--fail-on-gate` automation option is requested; keep the default evidence-first behavior stable.
+
+### D-048 — Bind optional truth entries to input hashes and stage all outputs
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Allow each truth capture to declare the expected input SHA-256 and refuse scoring on mismatch. Constrain result paths to the batch root, validate batch/result names and hashes, reject unknown truth fields, and stage all three evaluation files before publication with explicit overwrite behavior.
+- Evidence/reasoning: A correct score against the wrong capture is invalid evidence. Tests cover strict manifests, result/hash mismatch, staged-render failure, collision refusal, and preservation of unrelated files.
+- Consequences: Real benchmark manifests should include input hashes. Local real-property manifests use the ignored `benchmark/*.local.json` convention.
+- Revisit when: A signed external benchmark manifest or remote artifact store defines stronger identity guarantees.
+
+### D-049 — Report benchmark protocol coverage separately from metric scores
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: The compliance matrix separately reports the assignment's at-least-three-room condition, same-room photo/video/LiDAR coverage, repeated captures, staged damage from two classes, declared laser/tape method, photo stitching, drift ablation, competitor comparison, and fix loop. A manifest can declare protocol facts but the evaluator does not certify that the physical procedure occurred.
+- Evidence/reasoning: Passing one numerical ceiling or opening check cannot prove that the required benchmark design was followed. The real-artifact smoke report correctly warns about missing tiers and repeats even though all three result files load.
+- Consequences: `Declared`, `not met`, `not evaluated`, and implementation statuses remain distinct. Damage and other unbuilt features cannot disappear behind a geometry score.
+- Revisit when: New prediction/annotation schemas make the missing protocol rows objectively evaluable.
