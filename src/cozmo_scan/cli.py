@@ -82,6 +82,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="replace known reconstruction artifacts in the output directory",
     )
     reconstruct_parser.set_defaults(handler=handle_reconstruct)
+
+    measure_parser = subparsers.add_parser(
+        "measure",
+        help="reconstruct a capture and generate a measured floor plan",
+        description=(
+            "Reconstruct a LiDAR capture, detect structural planes, derive a "
+            "convex floor outline, and write CP03/CP04 diagnostic artifacts."
+        ),
+    )
+    measure_parser.add_argument(
+        "capture", type=Path, help="validated capture ZIP or directory"
+    )
+    measure_parser.add_argument(
+        "--output", type=Path, required=True, help="artifact output directory"
+    )
+    measure_parser.add_argument(
+        "--profile",
+        choices=[profile.value for profile in ReconstructionProfile],
+        default=ReconstructionProfile.FAST.value,
+        help="bounded reconstruction profile (default: fast)",
+    )
+    measure_parser.add_argument(
+        "--max-frames",
+        type=_positive_int,
+        help="override the profile frame limit for an audited diagnostic run",
+    )
+    measure_parser.add_argument(
+        "--frame-selection",
+        choices=[selection.value for selection in FrameSelection],
+        default=FrameSelection.DISTRIBUTED.value,
+        help="select frames across the capture or from its beginning",
+    )
+    measure_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known measurement artifacts in the output directory",
+    )
+    measure_parser.set_defaults(handler=handle_measure)
     return parser
 
 
@@ -146,6 +184,56 @@ def handle_reconstruct(arguments: argparse.Namespace) -> int:
     for name, path in paths.items():
         print(f"{name}: {path}")
     for warning in result.summary.warnings:
+        print(f"WARNING: {warning}")
+    return 0
+
+
+def handle_measure(arguments: argparse.Namespace) -> int:
+    """Reconstruct a capture, measure its structure, and write CP04 artifacts."""
+    from cozmo_scan.floorplan import StructureError, analyze_structure
+    from cozmo_scan.outputs import OutputError, write_measurement_outputs
+    from cozmo_scan.reconstruction import (
+        ReconstructionError,
+        get_profile_config,
+        reconstruct_capture,
+    )
+
+    try:
+        config = get_profile_config(
+            arguments.profile,
+            max_frames=arguments.max_frames,
+            frame_selection=arguments.frame_selection,
+        )
+        reconstruction = reconstruct_capture(arguments.capture, config)
+        structure = analyze_structure(reconstruction)
+        paths = write_measurement_outputs(
+            reconstruction,
+            structure,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except (OutputError, ReconstructionError, StructureError, ValueError) as exc:
+        print(f"Measurement failed: {exc}", file=sys.stderr)
+        return 2
+
+    plan = structure.summary.floor_plan
+    print(f"Status: {structure.summary.status.upper()}")
+    area_label = (
+        "Floor area (convex/provisional)"
+        if plan.convex_fill_ratio < structure.summary.config.minimum_boundary_fill_ratio
+        else "Floor area"
+    )
+    print(f"{area_label}: {plan.area_m2:.2f} square metres")
+    print(f"Principal dimensions: {plan.length_m:.2f} x {plan.width_m:.2f} metres")
+    print(f"Perimeter: {plan.perimeter_m:.2f} metres")
+    print(f"Detected walls: {len(structure.summary.walls)}")
+    if structure.summary.ceiling_height_m is None:
+        print("Ceiling height: not available")
+    else:
+        print(f"Ceiling height: {structure.summary.ceiling_height_m:.2f} metres")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    for warning in structure.summary.warnings:
         print(f"WARNING: {warning}")
     return 0
 

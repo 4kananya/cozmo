@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-CP01 (repository foundation), CP02 (capture validation), and CP03 (metric point-cloud reconstruction) are complete. The CLI can audit and reconstruct a supplied ZIP or extracted capture without unpacking the full archive. Structural plane/floor-plan extraction and the final product artifact bundle are intentionally added in later approved checkpoints.
+CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), and CP04 (structural planes and measured convex floor plan) are complete. The CLI can validate, reconstruct, and measure a supplied ZIP or extracted capture without unpacking the full archive. The final versioned product bundle and all-sample batch runner are intentionally added in later approved checkpoints.
 
 ## Requirements
 
@@ -104,6 +104,29 @@ Frames are distributed across the capture by default. `--max-frames` may lower o
 
 CP03 uses NumPy, Pillow, and the recorded depth/pose data directly. It does not require Open3D, SciPy, Matplotlib, RGB decoding, a GPU, or network access.
 
+## Measure structural geometry
+
+Run reconstruction plus CP04 structural analysis:
+
+```powershell
+python -m cozmo_scan measure `
+  "sample\single_room.zip" `
+  --output "runs\single-room-measured" `
+  --profile fast
+```
+
+The measurement directory contains the three reconstruction artifacts above plus:
+
+- `structure.json`: normalized floor/ceiling/wall planes, fit support and residuals, floor-local coordinates, polygon vertices, edge lengths, area, perimeter, principal dimensions, effective thresholds, and warnings;
+- `floorplan.svg`: scalable measured floor-plan drawing;
+- `floorplan.png`: reviewer-friendly preview with edge dimensions, scale bar, wall-direction markers, and quality evidence.
+
+CP04 finds the floor relative to the recorded camera trajectory, fits horizontal planes with fixed-seed RANSAC, detects vertical walls with X-Z line RANSAC, projects floor evidence into a local metric frame, filters isolated occupancy cells, and measures a simplified convex hull. A ceiling is returned only when its support, span, orientation, and height are credible; otherwise both the ceiling plane and height remain `null`.
+
+The floor polygon is deliberately a convex baseline. `convex_fill_ratio` reports how much of its area is backed by occupied floor cells. When that ratio is below the configured threshold, the CLI and drawing label area as provisional and warn that the hull may bridge concave or unscanned regions. These values are internal geometric estimates, not accuracy claims against ground truth.
+
+The audited `single_room.zip` fast run found a near-horizontal floor with 14,640 inliers, 20.6% cloud support, and 1.6 cm fit RMSE. It found six supported vertical planes and no credible ceiling. Its convex outline is approximately 7.44 x 6.59 m and 34.73 m², but occupied support is only 46.8%; the area is therefore explicitly reported as provisional rather than as a certified room measurement.
+
 ## Run tests
 
 The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
@@ -112,7 +135,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-Later checkpoints will add structural measurements and the final `run` and `batch` commands only after their implementation and tests exist.
+The suite currently contains 50 validation, reconstruction, structural-geometry, rendering, determinism, output-safety, and CLI tests. Later checkpoints will add the final `run` and `batch` commands only after their implementation and tests exist.
 
 ## Scope boundary
 

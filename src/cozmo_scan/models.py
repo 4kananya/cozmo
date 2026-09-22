@@ -230,3 +230,104 @@ class ReconstructionSummary(FrozenModel):
     elapsed_seconds: float = Field(ge=0)
     warnings: tuple[str, ...] = ()
     artifacts: dict[str, str] = Field(default_factory=dict)
+
+
+class StructureConfig(FrozenModel):
+    """Effective parameters for deterministic structural analysis."""
+
+    height_histogram_bin_m: float = Field(default=0.04, gt=0)
+    seed_band_half_width_m: float = Field(default=0.08, gt=0)
+    plane_distance_threshold_m: float = Field(default=0.05, gt=0)
+    horizontal_angle_tolerance_deg: float = Field(default=15.0, gt=0, lt=90)
+    floor_below_camera_min_m: float = Field(default=0.50, gt=0)
+    floor_below_camera_max_m: float = Field(default=2.50, gt=0)
+    ceiling_height_min_m: float = Field(default=1.80, gt=0)
+    ceiling_height_max_m: float = Field(default=4.50, gt=0)
+    minimum_plane_inliers: int = Field(default=100, ge=3)
+    minimum_horizontal_span_m: float = Field(default=0.75, gt=0)
+    minimum_ceiling_inliers: int = Field(default=200, ge=3)
+    minimum_ceiling_inlier_ratio: float = Field(default=0.01, gt=0, le=1)
+    minimum_ceiling_span_m: float = Field(default=1.25, gt=0)
+    floor_clearance_m: float = Field(default=0.08, gt=0)
+    wall_plane_distance_threshold_m: float = Field(default=0.0625, gt=0)
+    minimum_wall_inlier_ratio: float = Field(default=0.004, gt=0, le=1)
+    minimum_wall_span_m: float = Field(default=0.60, gt=0)
+    minimum_wall_height_m: float = Field(default=0.50, gt=0)
+    duplicate_wall_angle_tolerance_deg: float = Field(default=10.0, gt=0, lt=90)
+    duplicate_wall_offset_tolerance_m: float = Field(default=0.15, gt=0)
+    maximum_wall_planes: int = Field(default=6, ge=0, le=20)
+    ransac_iterations: int = Field(default=300, gt=0)
+    boundary_grid_size_m: float = Field(default=0.08, gt=0)
+    boundary_trim_percentile: float = Field(default=0.5, ge=0, lt=25)
+    polygon_simplify_tolerance_m: float = Field(default=0.08, ge=0)
+    minimum_boundary_fill_ratio: float = Field(default=0.60, gt=0, le=1)
+    floor_rmse_warning_m: float = Field(default=0.03, gt=0)
+    floor_inlier_ratio_warning: float = Field(default=0.05, gt=0, le=1)
+    maximum_area_warning_m2: float = Field(default=200.0, gt=0)
+    maximum_dimension_warning_m: float = Field(default=20.0, gt=0)
+    random_seed: int = 17
+
+    @model_validator(mode="after")
+    def validate_structure_ranges(self) -> StructureConfig:
+        if self.floor_below_camera_max_m <= self.floor_below_camera_min_m:
+            raise ValueError("floor camera-height range is reversed")
+        if self.ceiling_height_max_m <= self.ceiling_height_min_m:
+            raise ValueError("ceiling-height range is reversed")
+        return self
+
+
+class PlaneMeasurement(FrozenModel):
+    """One normalized plane with fit evidence in world coordinates."""
+
+    kind: Literal["floor", "ceiling", "wall"]
+    normal_xyz: tuple[float, float, float]
+    offset_m: float
+    centroid_xyz_m: tuple[float, float, float]
+    inlier_count: int = Field(ge=0)
+    inlier_ratio: float = Field(ge=0, le=1)
+    rmse_m: float = Field(ge=0)
+    span_primary_m: float = Field(ge=0)
+    span_secondary_m: float = Field(ge=0)
+
+
+class FloorCoordinateSystem(FrozenModel):
+    """Stable two-dimensional frame embedded in the detected floor plane."""
+
+    origin_xyz_m: tuple[float, float, float]
+    x_axis_xyz: tuple[float, float, float]
+    y_axis_xyz: tuple[float, float, float]
+    up_axis_xyz: tuple[float, float, float]
+
+
+class FloorPlanMeasurement(FrozenModel):
+    """Measured convex floor boundary in floor-local metres."""
+
+    vertices_xy_m: tuple[tuple[float, float], ...]
+    edge_lengths_m: tuple[float, ...]
+    area_m2: float = Field(gt=0)
+    perimeter_m: float = Field(gt=0)
+    length_m: float = Field(gt=0)
+    width_m: float = Field(gt=0)
+    principal_angle_deg: float
+    supporting_cell_count: int = Field(gt=0)
+    occupied_cell_area_m2: float = Field(gt=0)
+    convex_fill_ratio: float = Field(gt=0, le=1)
+
+
+class StructureSummary(FrozenModel):
+    """Machine-readable CP04 structural geometry and measurement result."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    status: Literal["ok", "ok_with_warnings"]
+    units: Literal["metre"] = "metre"
+    source: str
+    config: StructureConfig
+    floor: PlaneMeasurement
+    ceiling: PlaneMeasurement | None = None
+    walls: tuple[PlaneMeasurement, ...] = ()
+    floor_coordinates: FloorCoordinateSystem
+    floor_plan: FloorPlanMeasurement
+    ceiling_height_m: float | None = Field(default=None, gt=0)
+    elapsed_seconds: float = Field(ge=0)
+    warnings: tuple[str, ...] = ()
+    artifacts: dict[str, str] = Field(default_factory=dict)

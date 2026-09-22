@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from cozmo_scan.floorplan import analyze_structure
 from cozmo_scan.models import (
     FrameSelection,
     ReconstructionConfig,
@@ -20,10 +21,12 @@ from cozmo_scan.models import (
 from cozmo_scan.outputs import (
     OutputError,
     render_topdown,
+    write_measurement_outputs,
     write_ply,
     write_reconstruction_outputs,
 )
 from cozmo_scan.reconstruction import ReconstructionResult
+from tests.structure_factory import make_synthetic_room
 
 
 def make_result() -> ReconstructionResult:
@@ -123,6 +126,34 @@ class ReconstructionOutputTests(unittest.TestCase):
             with self.assertRaisesRegex(OutputError, "--overwrite"):
                 write_reconstruction_outputs(result, destination)
             write_reconstruction_outputs(result, destination, overwrite=True)
+
+    def test_measurement_output_set_and_overwrite_protection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "measurement"
+            reconstruction = make_synthetic_room()
+            structure = analyze_structure(reconstruction)
+
+            paths = write_measurement_outputs(
+                reconstruction,
+                structure,
+                destination,
+            )
+
+            self.assertEqual(
+                set(paths),
+                {
+                    "point_cloud",
+                    "topdown_preview",
+                    "summary",
+                    "structure_summary",
+                    "floorplan_vector",
+                    "floorplan_preview",
+                },
+            )
+            for path in paths.values():
+                self.assertTrue(path.is_file())
+            with self.assertRaisesRegex(OutputError, "--overwrite"):
+                write_measurement_outputs(reconstruction, structure, destination)
 
 
 if __name__ == "__main__":

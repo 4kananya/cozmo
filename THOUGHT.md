@@ -413,7 +413,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP01 — Repository foundation** | Make the repository safe to push, install, and test before algorithm work begins. | `.gitignore`; `pyproject.toml`; minimal package entry point; `build_parser()`; `main()`; package version; initial CLI test. Preserve local samples, then remove/migrate the already-committed large objects only with explicit approval. | Small installable Python package; working `python -m cozmo_scan --help`; ignored local samples and generated outputs; safe Git state. | Samples still exist locally; no oversized ZIP remains in ordinary Git history; package imports; CLI help and initial tests pass. | **Complete — audited 2026-09-22** |
 | **CP02 — Capture ingestion and validation** | Understand and validate the supplied Stray Scanner format before using its geometry. | `open_capture()`; `discover_capture_root()`; `inventory_capture()`; `read_camera_matrix()`; `read_odometry()`; `match_frames()`; `select_keyframes()`; `validate_capture()`; `validate` CLI command. | Structured validation result for ZIP/directory inputs, frame inventory, errors/warnings, and tiny synthetic fixture/tests. | All three samples report the known inventory; frame matching is deterministic; blank CSV fields parse correctly; unsafe/malformed inputs fail clearly. | **Complete — audited 2026-09-22** |
 | **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `voxel_downsample()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Complete — audited 2026-09-22** |
-| **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_dominant_planes()`; `classify_plane()`; `select_floor_plane()`; `select_ceiling_plane()`; `select_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces a plausible outline; unsupported height is `null`; no coordinates or geometry are hard-coded per sample. | **Not started — approval required** |
+| **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_plane_ransac()`; `classify_plane()`; `detect_floor()`; `detect_ceiling()`; `detect_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces an inspectable outline; unsupported height is `null`; weak convex support is marked provisional; no coordinates or geometry are hard-coded per sample. | **Complete — audited 2026-09-22** |
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_point_cloud()`; `render_floorplan()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Not started — approval required** |
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
 | **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
@@ -459,13 +459,15 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP04 — Structural geometry and measurements (2–4 hours)
 
-- [ ] Fit and classify dominant planes.
-- [ ] Select a credible floor and optional ceiling.
-- [ ] Build the trimmed 2D hull and simplify it.
-- [ ] Calculate dimensions, area, perimeter, height, and quality evidence.
-- [ ] Add rectangle/plane unit tests.
+- [x] Fit and classify dominant planes.
+- [x] Select a credible floor and optional ceiling.
+- [x] Build the trimmed 2D hull and simplify it.
+- [x] Calculate dimensions, area, perimeter, height, and quality evidence.
+- [x] Add rectangle/plane unit tests.
 
 **Fallback:** if wall-plane intersections are unstable, ship the supported floor-point hull with a warning. Do not create complex topology code under deadline pressure.
+
+**Completion evidence (2026-09-22):** 50 tests pass, including noisy and tilted planes, known rotated-rectangle measurements, a synthetic 4 x 3 m room with floor/ceiling/four walls, missing-ceiling behavior, deterministic repeats, rendering, output protection, and CLI failures. The real `single_room.zip` fast run completed CP03 plus CP04 in under five seconds at the command boundary. Its floor has 14,640 inliers (20.6% of the cloud), 1.58 cm RMSE, and a normal whose world-up component is 0.99995. Six vertical planes were retained with 1.7–2.9 cm residuals. No ceiling passed the conservative evidence gate, so ceiling and height are `null`. The convex polygon measures 7.44 x 6.59 m, 34.73 m², and 23.02 m perimeter, but only 46.8% of that convex area is backed by occupied floor cells; the CLI, JSON, README, SVG, and PNG therefore mark the area as provisional and warn about concavity/unscanned gaps. Two independent real runs produced identical PLY, top-down PNG, SVG, floor-plan PNG, and structural geometry after excluding elapsed time. Generated run directories remain ignored.
 
 ### CP05 — Stable artifact bundle (1–2 hours)
 
@@ -800,3 +802,48 @@ Entry template:
 - Evidence/reasoning: Distributed frames test global coverage, while the approved CP03 ladder also required 10 nearby frames to isolate local transform correctness. The nearby run stayed within the one-frame bounds and did not explode.
 - Consequences: Product runs remain distributed. Contiguous-start is documented as diagnostic, and the selected mode is serialized with the configuration.
 - Revisit when: The transform convention is independently validated and the audit flag no longer provides useful debugging value.
+
+### D-026 — Keep CP04 NumPy-only and deterministic
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Implement plane fitting, 2D line fitting, convex hull, polygon simplification, and minimum-area dimensions directly with focused NumPy functions. Use fixed random seeds and stable sorting; add no CP04 dependency.
+- Evidence/reasoning: The required kernels are small enough to test numerically. The complete 70,928-point real structural analysis takes a fraction of a second, and independent runs produce identical geometry and rendered artifacts.
+- Consequences: Installation remains limited to NumPy, Pillow, and Pydantic. The project owns roughly 790 lines of explicit structural logic, but avoids a large geometry framework and keeps every threshold in the serialized configuration.
+- Revisit when: A later approved concave-boundary or mesh capability has a demonstrated correctness/runtime need that the focused implementation cannot meet.
+
+### D-027 — Identify horizontal structure relative to the camera and floor
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Seed the floor from the densest height band 0.5–2.5 m below median camera height, refine it with fixed-seed horizontal RANSAC/SVD, and search for a ceiling only 1.8–4.5 m above that floor. Reject weak support, span, orientation, or height rather than guessing.
+- Evidence/reasoning: `single_room.zip` contains a dominant surface near world Y -1.48 m while median camera Y is near -0.07 m. The fitted floor has 14,640 inliers, 1.58 cm RMSE, and normal Y 0.99995. No upper plane passed the ceiling evidence gate.
+- Consequences: The real result reports `ceiling: null` and `ceiling_height_m: null`. A missing ceiling is a supported outcome, not zero height or a pipeline failure.
+- Revisit when: CP06 runs the frozen configuration on the explicitly floor-only and with-ceiling captures.
+
+### D-028 — Use vertical 2D line RANSAC for wall planes
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: After removing the floor and optional ceiling, detect walls as robust lines in world X-Z and lift them to vertical planes. Require horizontal span, vertical span, minimum support, and duplicate rejection.
+- Evidence/reasoning: ARKit world-up was independently supported by the floor normal. A 2D model uses that evidence, requires two samples instead of three, and is simpler and more stable than unrestricted 3D RANSAC for vertical walls. The real fast run retains six supported planes with 1.7–2.9 cm residuals.
+- Consequences: This baseline assumes gravity-aligned walls and does not fit arbitrarily leaning surfaces as walls. Full spans live in JSON; short teal direction markers are used in the drawing to avoid obscuring the outline.
+- Revisit when: A supplied scan contains meaningful non-vertical structural walls or floor/world-up evidence fails.
+
+### D-029 — Treat the convex floor outline as provisional when support is sparse
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Build the baseline boundary from trimmed, neighbour-supported floor occupancy cells and a simplified convex hull. Serialize occupied-cell area and convex-fill ratio. Below 60% fill, label the convex area provisional everywhere and emit an explicit warning.
+- Evidence/reasoning: The real `single_room` top-down view is visibly non-convex or incompletely scanned. Its hull is 34.73 m², while supported 8 cm cells cover 46.8% of that area. Reporting the hull as an unqualified room area would hide a known limitation.
+- Consequences: CP04 remains deterministic and bounded but does not claim a precise concave room boundary. Concave occupancy contours remain optional work after the complete P0 pipeline and documentation pass.
+- Revisit when: The final baseline is complete and deadline buffer permits a tested concave-boundary method with the convex result retained as fallback.
+
+### D-030 — Retain `measure` as the CP04 diagnostic command
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Add `cozmo-scan measure` to compose the tested reconstruction and structural functions and write six diagnostic artifacts: PLY, reconstruction JSON, top-down PNG, structure JSON, floor-plan SVG, and floor-plan PNG.
+- Evidence/reasoning: CP04 needs an auditable real-data path before CP05 defines the final product schema/report. Reusing `reconstruct_capture()` avoids a second geometry pipeline, and overwrite protection covers all known files.
+- Consequences: CP05 will compose these functions into the final `run` result rather than replace them. `measure` remains useful for low-level diagnosis; it is not yet the full assignment artifact contract.
+- Revisit when: CP05 finalizes command naming and reviewer workflow.
