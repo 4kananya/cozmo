@@ -6,7 +6,7 @@ The project is being built as a checkpoint-gated assessment. The detailed scope,
 
 ## Current status
 
-CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), CP04 (structural planes and measured convex floor plan), and CP05 (complete single-capture artifact bundle) are complete. The CLI can validate, reconstruct, measure, or produce a reviewer-ready result from a supplied ZIP or extracted capture. The all-sample batch runner remains an approved later checkpoint.
+CP01 (repository foundation), CP02 (capture validation), CP03 (metric point-cloud reconstruction), CP04 (structural planes and measured convex floor plan), CP05 (complete single-capture artifact bundle), and CP06 (all-sample batch validation) are complete. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, or run the same frozen configuration across a directory of captures.
 
 ## Requirements
 
@@ -151,6 +151,29 @@ The final output is staged before publication. Existing known artifacts require 
 
 The final schema explicitly marks unsupported features such as photo-only reconstruction, damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing as `not_implemented`; ground-truth accuracy and multi-room stitching are `not_evaluated`. Missing measurements remain `null`.
 
+## Run every supplied capture
+
+The batch command discovers top-level ZIPs and valid capture directories, orders them deterministically, and reuses the unchanged final pipeline sequentially:
+
+```powershell
+python -m cozmo_scan batch `
+  "sample" `
+  --output "runs\all-samples" `
+  --profile fast
+```
+
+The output root contains `batch.json`, `batch-report.md`, and one named directory per capture containing the same seven artifacts produced by `run`. One effective configuration is shared by every capture. Known output collisions are rejected before processing starts unless `--overwrite` is supplied; unrelated files are preserved. An expected failure in one capture is recorded and later captures still run. The command returns `0` only when every capture succeeds and `2` for a partial or fully failed batch.
+
+The audited frozen-profile run completed all three supplied archives. All three outlines are explicitly provisional because convex occupied support is below 60%:
+
+| Capture | Points | Convex area | Dimensions | Walls | Ceiling | Occupied support |
+|---|---:|---:|---:|---:|---:|---:|
+| `single_room.zip` | 70,928 | 34.73 m² | 7.44 × 6.59 m | 6 | unavailable | 46.8% |
+| `single_scan_floor_only.zip` | 171,537 | 78.23 m² | 10.88 × 9.44 m | 6 | unavailable | 57.4% |
+| `single_scan_with_ceiling.zip` | 242,402 | 85.80 m² | 12.40 × 9.28 m | 6 | 2.40 m | 48.5% |
+
+These are internal geometric estimates, not ground-truth accuracy claims. In particular, the floor-only capture remains honestly nullable rather than receiving an inferred ceiling.
+
 ## Run tests
 
 The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
@@ -159,7 +182,7 @@ The test suite creates tiny temporary captures; it does not require the large as
 python -m unittest discover -s tests -v
 ```
 
-The suite currently contains 58 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, determinism, staged-output-safety, and CLI tests. A later checkpoint will add the `batch` command only after its implementation and tests exist.
+The suite currently contains 73 validation, reconstruction, structural-geometry, pipeline-contract, provenance, rendering, batch-discovery, failure-isolation, determinism, staged-output-safety, overwrite-safety, and CLI tests.
 
 ## Scope boundary
 

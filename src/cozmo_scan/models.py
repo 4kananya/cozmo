@@ -449,3 +449,99 @@ class RunResult(FrozenModel):
     capabilities: tuple[CapabilityAssessment, ...]
     warnings: tuple[str, ...] = ()
     artifacts: ArtifactManifest
+
+
+class BatchItemResult(FrozenModel):
+    """Compact comparable outcome for one capture in a batch."""
+
+    input_name: str
+    status: Literal["succeeded", "failed"]
+    output_directory: str
+    input_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    selected_frame_count: int | None = Field(default=None, ge=0)
+    output_point_count: int | None = Field(default=None, ge=0)
+    floor_area_m2: float | None = Field(default=None, gt=0)
+    area_is_provisional: bool | None = None
+    length_m: float | None = Field(default=None, gt=0)
+    width_m: float | None = Field(default=None, gt=0)
+    perimeter_m: float | None = Field(default=None, gt=0)
+    floor_inlier_ratio: float | None = Field(default=None, ge=0, le=1)
+    floor_rmse_m: float | None = Field(default=None, ge=0)
+    boundary_fill_ratio: float | None = Field(default=None, gt=0, le=1)
+    detected_wall_count: int | None = Field(default=None, ge=0)
+    ceiling_height_m: float | None = Field(default=None, gt=0)
+    measurement_confidence: Literal["good", "caution"] | None = None
+    elapsed_seconds: float | None = Field(default=None, ge=0)
+    warnings: tuple[str, ...] = ()
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome_fields(self) -> BatchItemResult:
+        if self.status == "failed":
+            if not self.error:
+                raise ValueError("failed batch item must include an error")
+            return self
+        required = {
+            "input_sha256": self.input_sha256,
+            "selected_frame_count": self.selected_frame_count,
+            "output_point_count": self.output_point_count,
+            "floor_area_m2": self.floor_area_m2,
+            "area_is_provisional": self.area_is_provisional,
+            "length_m": self.length_m,
+            "width_m": self.width_m,
+            "perimeter_m": self.perimeter_m,
+            "floor_inlier_ratio": self.floor_inlier_ratio,
+            "floor_rmse_m": self.floor_rmse_m,
+            "boundary_fill_ratio": self.boundary_fill_ratio,
+            "detected_wall_count": self.detected_wall_count,
+            "measurement_confidence": self.measurement_confidence,
+            "elapsed_seconds": self.elapsed_seconds,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError(
+                "successful batch item is missing: " + ", ".join(missing)
+            )
+        if self.error is not None:
+            raise ValueError("successful batch item cannot include an error")
+        return self
+
+
+class BatchSummary(FrozenModel):
+    """Versioned cross-capture outcome from one sequential batch run."""
+
+    schema_version: Literal["1.0.0"] = "1.0.0"
+    product: Literal["cozmo-scan-batch"] = "cozmo-scan-batch"
+    status: Literal["ok", "partial", "failed"]
+    input_name: str
+    config: PipelineConfig
+    total_capture_count: int = Field(gt=0)
+    succeeded_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    elapsed_seconds: float = Field(ge=0)
+    items: tuple[BatchItemResult, ...]
+    artifacts: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_batch_counts(self) -> BatchSummary:
+        if self.succeeded_count + self.failed_count != self.total_capture_count:
+            raise ValueError("batch success/failure counts do not match total")
+        if len(self.items) != self.total_capture_count:
+            raise ValueError("batch item count does not match total")
+        actual_succeeded = sum(item.status == "succeeded" for item in self.items)
+        actual_failed = len(self.items) - actual_succeeded
+        if (
+            actual_succeeded != self.succeeded_count
+            or actual_failed != self.failed_count
+        ):
+            raise ValueError("batch counts do not agree with item statuses")
+        expected_status = (
+            "failed"
+            if self.succeeded_count == 0
+            else "partial"
+            if self.failed_count
+            else "ok"
+        )
+        if self.status != expected_status:
+            raise ValueError("batch status does not agree with success/failure counts")
+        return self

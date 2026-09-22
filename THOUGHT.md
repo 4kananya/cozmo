@@ -415,7 +415,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP03 — Metric 3D reconstruction** | Convert selected depth/confidence frames and recorded ARKit poses into a bounded metric point cloud. | `scale_intrinsics()`; `depth_to_metres()`; `filter_depth()`; `backproject_depth()`; `quaternion_to_rotation()`; `camera_to_world_matrix()`; `transform_points()`; `reconstruct_keyframe()`; `voxel_downsample()`; `reconstruct_capture()`. | Coherent downsampled PLY/top-down preview from `single_room.zip`, with reconstruction statistics and numerical tests. | Synthetic projection/transform tests pass; a 50-frame real run has plausible scale and coherent floor/walls; the `fast` path stays within bounded memory. | **Complete — audited 2026-09-22** |
 | **CP04 — Structural planes and floor plan** | Turn the reconstruction into an understandable measured room result. | `fit_plane_ransac()`; `classify_plane()`; `detect_floor()`; `detect_ceiling()`; `detect_wall_planes()`; `create_floor_coordinate_system()`; `project_points_to_floor()`; `trim_boundary_outliers()`; `build_convex_outline()`; `simplify_polygon()`; `measure_polygon()`; plane/boundary quality functions. | Floor polygon, edge lengths, area, perimeter, principal dimensions, optional ceiling height, plane metrics, and warnings. | Synthetic plane/rectangle tests pass; `single_room` produces an inspectable outline; unsupported height is `null`; weak convex support is marked provisional; no coordinates or geometry are hard-coded per sample. | **Complete — audited 2026-09-22** |
 | **CP05 — Complete artifact bundle** | Turn the algorithms into one reviewable command-line product with stable outputs. | `PipelineConfig`; `RunResult`; `RoomResult`; `QualityMetrics`; `CapabilityStatus`; `ArtifactManifest`; `run_pipeline()`; `write_result_json()`; `write_ply()`; `render_floorplan_svg()`/`render_floorplan_png()`; `render_topdown()`; `render_trajectory()`; `write_report()`; `run` CLI command. | `result.json`, `reconstruction.ply`, `floorplan.svg`, `floorplan.png`, `topdown.png`, `trajectory.png`, and `report.md` from one command. | JSON validates against the versioned contract; units/provenance/parameters/warnings are present; overwrite protection and exit codes work; artifacts are understandable without reading source. | **Complete — audited 2026-09-22** |
-| **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_summary()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Not started — approval required** |
+| **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_outputs()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Complete — audited 2026-09-22** |
 | **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Not started — approval required** |
 
 The table is the high-level control board. The sections below are the authoritative detailed checklist and stop conditions for each checkpoint. Status values should be changed only after recording the corresponding implementation evidence; they do not replace the append-only decision log.
@@ -482,13 +482,15 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP06 — All samples and regression fixes (2–3 hours)
 
-- [ ] Run the same frozen `fast` profile on all three archives.
-- [ ] Generate a batch summary table.
-- [ ] Inspect every rendering and record manual QA notes.
-- [ ] Fix general failures only; avoid per-sample hard-coded geometry.
-- [ ] Re-run the unit and smoke tests.
+- [x] Run the same frozen `fast` profile on all three archives.
+- [x] Generate a batch summary table.
+- [x] Inspect every rendering and record manual QA notes.
+- [x] Fix general failures only; avoid per-sample hard-coded geometry.
+- [x] Re-run the unit and smoke tests.
 
 **Stop condition:** if one sample cannot yield a credible ceiling or wall, report the missing output and warning. Do not tune thresholds until the picture merely looks nice.
+
+**Completion evidence (2026-09-22):** 73 tests pass, including stable discovery, unrelated-entry filtering, empty-input rejection, case-insensitive output-name collision detection, frozen-config reuse, expected per-capture failure isolation, unexpected-error propagation, summary-schema round trips, staged JSON/Markdown publication, injected staging failure, preflight collision checks, overwrite behavior, and CLI exit codes. One unmodified `fast`/distributed configuration with a 200-frame cap processed all three real archives sequentially: `single_room` produced 70,928 points, a provisional 34.73 m² convex outline, six walls, and no supported ceiling; `single_scan_floor_only` produced 171,537 points, a provisional 78.23 m² outline, six walls, and no supported ceiling; `single_scan_with_ceiling` produced 242,402 points, a provisional 85.80 m² outline, six walls, and an evidence-supported 2.40 m ceiling. Each capture wrote all seven CP05 artifacts, and the batch wrote its two aggregate artifacts. The effective configurations in all three `result.json` files are identical. All nine top-down, trajectory, and floor-plan PNGs were manually inspected; geometry is visible, paths align with the scans, labels are legible, and no floor-only ceiling was fabricated. A second independent batch produced byte-identical PLY, top-down, trajectory, SVG, floor-plan, and per-capture Markdown files; every `result.json` and `batch.json` matched after excluding observed durations. No sample-specific threshold or coordinate was added.
 
 ### CP07 — Submission and demo (2–3 hours plus buffer)
 
@@ -894,3 +896,48 @@ Entry template:
 - Evidence/reasoning: Two real final runs produced byte-identical PLY, top-down PNG, trajectory PNG, floor-plan SVG/PNG, and Markdown report. Their final JSON matched after removing timings, while elapsed seconds naturally differed.
 - Consequences: Reviewers retain useful performance evidence without pretending wall-clock duration is deterministic. Result consumers know exactly which field varies between equivalent runs.
 - Revisit when: A formal reproducible-build profile chooses to omit timings entirely or stores them outside the result contract.
+
+### D-036 — Reuse the final pipeline sequentially with one frozen configuration
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Make `batch` a thin sequential orchestrator over the unchanged `run_pipeline()` and `write_run_outputs()` contracts. Construct one `PipelineConfig` and pass that same immutable object to every capture. Add no worker pool and no dependency.
+- Evidence/reasoning: The three samples complete in tens of seconds with the bounded `fast` profile. Sequential execution keeps peak memory bounded, makes console/report order deterministic, and proves cross-sample behavior without creating a second numerical code path.
+- Consequences: Batch speed is the sum of individual runs, but results remain easy to reproduce and audit. A future parallel runner must preserve ordering, failure semantics, and the exact per-capture contract.
+- Revisit when: Measured runtime on a materially larger dataset justifies controlled parallelism and memory limits are tested.
+
+### D-037 — Discover only top-level captures and reserve collision-free output names
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Accept one ZIP, one valid capture directory, or the deterministic case-insensitive ordering of top-level ZIP/valid-directory children. Ignore unrelated entries, sanitize output names, reject case-insensitive collisions, and preflight every known batch/per-capture destination before starting work.
+- Evidence/reasoning: Recursively interpreting arbitrary folders as a dataset risks duplicate processing and output ambiguity. Tests cover stable ordering, unrelated files, empty inputs, `room`/`ROOM.zip` collisions, known-artifact conflicts, and a per-capture destination that is a file even under `--overwrite`.
+- Consequences: Nested collections are deliberately not traversed. Inputs must be organized as direct children, while an extracted capture directory remains accepted directly. Existing unrelated output files are preserved.
+- Revisit when: A documented manifest or recursive dataset format provides unambiguous capture identities.
+
+### D-038 — Continue after expected capture failures but expose internal bugs
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Record `PipelineError` and `OutputError` as failed batch items, continue later captures, and return exit code 2 when any item fails. Do not catch unexpected exception types inside the batch loop.
+- Evidence/reasoning: One corrupt archive should not erase evidence from other supplied samples, but treating a programming error as ordinary bad data would produce a misleading partial-success report. Injected tests prove both continuation for an expected failure and propagation for an unexpected runtime error.
+- Consequences: `batch.json` and `batch-report.md` contain explicit errors for normal per-capture failures. Internal faults reach the CLI safety boundary and return exit code 1 rather than being disguised as data quality.
+- Revisit when: New pipeline exception classes are introduced; add only failures that genuinely represent input/output conditions.
+
+### D-039 — Keep cross-sample measurements cautious and evidence-led
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Retain the shared structural thresholds and report all three real convex areas as provisional because occupied support is below 60%. Keep ceiling height `null` for `single_room` and `single_scan_floor_only`; report 2.40 m only for `single_scan_with_ceiling`, where a plane passes the existing support checks.
+- Evidence/reasoning: The frozen run produced occupied support of 46.8%, 57.4%, and 48.5%. Manual review of all nine PNGs confirms broad multi-space or incomplete/concave coverage, matching the caution labels. The explicitly named floor-only sample remains nullable, while the with-ceiling sample provides accepted plane evidence without a per-file threshold change.
+- Consequences: The batch demonstrates general behavior rather than cosmetically tuned drawings. It does not claim ground-truth accuracy, a concave room boundary, or a ceiling where the evidence is absent.
+- Revisit when: Survey dimensions, labelled room boundaries, or a tested concave-outline implementation supplies objective evaluation evidence.
+
+### D-040 — Compare deterministic batch evidence separately from durations
+
+- Date: 2026-09-22
+- Status: accepted
+- Decision: Record total and per-capture wall-clock durations in batch artifacts, but assess repeatability by comparing every geometric/rendered artifact byte-for-byte and JSON after removing only elapsed-time fields.
+- Evidence/reasoning: Two independent three-capture runs produced byte-identical PLY, top-down PNG, trajectory PNG, SVG, floor-plan PNG, and per-capture Markdown files. Per-capture result objects and the aggregate batch object were equal after durations were removed.
+- Consequences: Runtime evidence remains useful while deterministic geometry and reporting have a precise audit rule. The aggregate Markdown naturally differs where it displays observed durations.
+- Revisit when: Timing moves to a separate benchmark artifact or deterministic-build mode omits it.

@@ -158,6 +158,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="replace known final artifacts in the output directory",
     )
     run_parser.set_defaults(handler=handle_run)
+
+    batch_parser = subparsers.add_parser(
+        "batch",
+        help="run the final pipeline across every discovered capture",
+        description=(
+            "Discover supplied capture ZIPs or directories, process each one "
+            "with one shared configuration, and write combined evidence."
+        ),
+    )
+    batch_parser.add_argument(
+        "input", type=Path, help="capture file, capture directory, or sample directory"
+    )
+    batch_parser.add_argument(
+        "--output", type=Path, required=True, help="batch artifact output directory"
+    )
+    batch_parser.add_argument(
+        "--profile",
+        choices=[profile.value for profile in ReconstructionProfile],
+        default=ReconstructionProfile.FAST.value,
+        help="shared bounded reconstruction profile (default: fast)",
+    )
+    batch_parser.add_argument(
+        "--max-frames",
+        type=_positive_int,
+        help="override the shared profile frame limit for every capture",
+    )
+    batch_parser.add_argument(
+        "--frame-selection",
+        choices=[selection.value for selection in FrameSelection],
+        default=FrameSelection.DISTRIBUTED.value,
+        help="shared frame-selection strategy for every capture",
+    )
+    batch_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known batch and per-capture artifacts",
+    )
+    batch_parser.set_defaults(handler=handle_batch)
     return parser
 
 
@@ -316,6 +354,50 @@ def handle_run(arguments: argparse.Namespace) -> int:
     for warning in result.warnings:
         print(f"WARNING: {warning}")
     return 0
+
+
+def handle_batch(arguments: argparse.Namespace) -> int:
+    """Run all discovered captures with one frozen pipeline configuration."""
+    from cozmo_scan.batch import (
+        BatchError,
+        run_batch,
+        write_batch_outputs,
+    )
+    from cozmo_scan.outputs import OutputError
+    from cozmo_scan.pipeline import get_pipeline_config
+
+    try:
+        config = get_pipeline_config(
+            arguments.profile,
+            max_frames=arguments.max_frames,
+            frame_selection=arguments.frame_selection,
+        )
+        summary = run_batch(
+            arguments.input,
+            arguments.output,
+            config,
+            overwrite=arguments.overwrite,
+        )
+        paths = write_batch_outputs(
+            summary,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except (BatchError, OutputError, ValueError) as exc:
+        print(f"Batch failed: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Status: {summary.status.upper()}")
+    print(f"Captures: {summary.total_capture_count}")
+    print(f"Succeeded: {summary.succeeded_count}")
+    print(f"Failed: {summary.failed_count}")
+    print(f"Total elapsed: {summary.elapsed_seconds:.2f} seconds")
+    for item in summary.items:
+        detail = item.error if item.status == "failed" else item.output_directory
+        print(f"{item.status.upper()}: {item.input_name}: {detail}")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    return 0 if summary.failed_count == 0 else 2
 
 
 def format_validation_report(result: ValidationResult) -> str:
