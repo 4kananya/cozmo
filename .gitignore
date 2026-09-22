@@ -1,0 +1,34 @@
+# Local sample captures and generated artifacts
+/sample/
+/runs/
+/outputs/
+/artifacts/
+/extracted/
+
+# Python environments and package output
+/.venv/
+/venv/
+/build/
+/dist/
+*.egg-info/
+
+# Python caches and test/analysis output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
