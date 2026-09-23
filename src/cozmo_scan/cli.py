@@ -51,7 +51,51 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="replace an existing media-input.json manifest",
     )
+    ingest_parser.add_argument(
+        "--evidence",
+        action="store_true",
+        help="add quality analysis, a contact sheet, and evenly sampled video frames",
+    )
+    ingest_parser.add_argument(
+        "--frames",
+        type=_positive_int,
+        default=12,
+        help="video frames to extract with --evidence (default: 12)",
+    )
     ingest_parser.set_defaults(handler=handle_ingest)
+
+    stitch_parser = subparsers.add_parser(
+        "stitch",
+        help="prototype manual-anchor alignment and cross-capture wall matching",
+        description=(
+            "Estimate a rigid 2D transform from corresponding doorway or control "
+            "points, then report candidate wall matches between two result artifacts."
+        ),
+    )
+    stitch_parser.add_argument("source_result", type=Path)
+    stitch_parser.add_argument("target_result", type=Path)
+    stitch_parser.add_argument(
+        "--anchors",
+        type=Path,
+        required=True,
+        help='JSON object with matching "source" and "target" [x,y] point lists',
+    )
+    stitch_parser.add_argument("--output", type=Path, required=True)
+    stitch_parser.add_argument("--overwrite", action="store_true")
+    stitch_parser.set_defaults(handler=handle_stitch)
+
+    damage_parser = subparsers.add_parser(
+        "screen-damage",
+        help="experimental photo screening for crack-like visual anomalies",
+        description=(
+            "Flag thin dark local-contrast regions for human review and publish an "
+            "inspection scope. This is not a structural diagnosis or repair estimate."
+        ),
+    )
+    damage_parser.add_argument("input", type=Path, help="image or image directory")
+    damage_parser.add_argument("--output", type=Path, required=True, help="output JSON file")
+    damage_parser.add_argument("--overwrite", action="store_true")
+    damage_parser.set_defaults(handler=handle_damage_screen)
 
     validate_parser = subparsers.add_parser(
         "validate",
@@ -319,15 +363,29 @@ def handle_validate(arguments: argparse.Namespace) -> int:
 
 def handle_ingest(arguments: argparse.Namespace) -> int:
     """Validate photo/video media and publish deterministic provenance."""
-    from cozmo_scan.media import MediaIngestionError, ingest_media, write_media_manifest
+    from cozmo_scan.media import (
+        MediaIngestionError,
+        build_media_evidence,
+        ingest_media,
+        write_media_manifest,
+    )
 
     try:
-        ingestion = ingest_media(arguments.input, arguments.tier)
-        destination = write_media_manifest(
-            ingestion,
-            arguments.output,
-            overwrite=arguments.overwrite,
-        )
+        if arguments.evidence:
+            ingestion, destination = build_media_evidence(
+                arguments.input,
+                arguments.tier,
+                arguments.output,
+                extracted_frame_count=arguments.frames,
+                overwrite=arguments.overwrite,
+            )
+        else:
+            ingestion = ingest_media(arguments.input, arguments.tier)
+            destination = write_media_manifest(
+                ingestion,
+                arguments.output,
+                overwrite=arguments.overwrite,
+            )
     except (MediaIngestionError, ValueError) as exc:
         print(f"Media ingestion failed: {exc}", file=sys.stderr)
         return 2
@@ -337,9 +395,62 @@ def handle_ingest(arguments: argparse.Namespace) -> int:
     print(f"Assets: {ingestion.asset_count}")
     print(f"Bytes: {ingestion.byte_count}")
     print(f"Scope: {ingestion.processing_scope}")
+    if ingestion.derived_frames:
+        accepted = sum(
+            frame.quality is not None and frame.quality.accepted
+            for frame in ingestion.derived_frames
+        )
+        print(f"Extracted frames: {len(ingestion.derived_frames)}")
+        print(f"Quality accepted: {accepted}")
+    if ingestion.contact_sheet:
+        print(f"Contact sheet: {Path(arguments.output) / ingestion.contact_sheet}")
     print(f"Manifest: {destination}")
     for warning in ingestion.warnings:
         print(f"WARNING: {warning}")
+    return 0
+
+
+def handle_stitch(arguments: argparse.Namespace) -> int:
+    """Run the manually anchored room-stitching prototype."""
+    from cozmo_scan.stitching import StitchingError, stitch_result_files, write_stitching_result
+
+    try:
+        result = stitch_result_files(
+            arguments.source_result,
+            arguments.target_result,
+            arguments.anchors,
+        )
+        destination = write_stitching_result(
+            result, arguments.output, overwrite=arguments.overwrite
+        )
+    except StitchingError as exc:
+        print(f"Stitching failed: {exc}", file=sys.stderr)
+        return 2
+    transform = result["transform_source_to_target"]
+    print("Status: PROTOTYPE")
+    print(f"Anchor RMSE: {transform['anchor_rmse_m']:.4f} m")
+    print(f"Candidate wall matches: {len(result['wall_matches'])}")
+    print(f"Output: {destination}")
+    return 0
+
+
+def handle_damage_screen(arguments: argparse.Namespace) -> int:
+    """Run the explicitly experimental visual-anomaly screen."""
+    from cozmo_scan.damage import DamageScreenError, screen_damage_candidates, write_damage_screen
+
+    try:
+        result = screen_damage_candidates(arguments.input)
+        destination = write_damage_screen(
+            result, arguments.output, overwrite=arguments.overwrite
+        )
+    except DamageScreenError as exc:
+        print(f"Damage screening failed: {exc}", file=sys.stderr)
+        return 2
+    print("Status: EXPERIMENTAL SCREENING")
+    print(f"Images: {result['image_count']}")
+    print(f"Review candidates: {result['candidate_count']}")
+    print("Repair quantities: NOT ESTIMATED")
+    print(f"Output: {destination}")
     return 0
 
 

@@ -198,6 +198,29 @@ class BuildIntervalsTests(unittest.TestCase):
             msg=f"openings without intervals were not declared: {warnings}",
         )
 
+    def test_opening_width_interval_is_built_from_retained_points(self) -> None:
+        reconstruction = make_room_with_openings()
+        result = analyze_structure(reconstruction)
+        assert result.summary.openings is not None
+        if not result.summary.openings.openings:
+            self.skipTest("fixture published no opening to resample")
+
+        intervals, warnings = build_measurement_intervals(
+            result.summary,
+            projected_floor_xy_m=result.projected_floor_xy_m,
+            floor_heights_m=result.floor_heights_m,
+            ceiling_heights_m=result.ceiling_heights_m,
+            structure=StructureConfig(),
+            config=IntervalConfig(resamples=8),
+            points_xyz_m=reconstruction.points_xyz_m,
+        )
+
+        opening_intervals = [
+            interval for interval in intervals if interval.metric == "opening_width_m"
+        ]
+        self.assertTrue(opening_intervals, msg=f"opening intervals failed: {warnings}")
+        self.assertTrue(all(interval.target_id for interval in opening_intervals))
+
     def test_ceiling_interval_is_tight_on_a_well_sampled_plane(self) -> None:
         # Two planes fitted from thousands of inliers separate very precisely.
         # This is a precision statement only: the synthetic ceiling is at 2.5 m

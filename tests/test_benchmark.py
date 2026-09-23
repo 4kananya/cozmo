@@ -452,9 +452,13 @@ class InputOutputTests(unittest.TestCase):
                 "| Requirement | File path | Artifact | Status | Evidence / limitation |",
                 matrix,
             )
-            # Unbuilt requirements must not point at a file that does not
-            # implement them.
-            self.assertIn("| Damage regions with class and metric extent | not present |", matrix)
+            # Prototype requirements must name the module while preserving
+            # their unevaluated status and limitations.
+            self.assertIn(
+                "| Damage regions with class and metric extent | `src/cozmo_scan/damage.py` |",
+                matrix,
+            )
+            self.assertIn("Prototype; not evaluated", matrix)
             self.assertIn("`src/cozmo_scan/drift.py`", matrix)
             unrelated = output / "unrelated-note.txt"
             unrelated.write_text("keep", encoding="utf-8")

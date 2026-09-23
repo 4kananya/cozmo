@@ -42,7 +42,9 @@ benchmark.py        compare published results with independent truth and exact g
 
 drift.py            rebuild both drift-correction arms and publish the ablation
 grid.py             occupancy-cell primitives shared by floorplan.py and openings.py
-media.py            decode/inventory photo sets and inspect video streams
+media.py            decode/quality-check photos and extract sampled video evidence
+stitching.py        manually anchored 2D registration and wall matching
+damage.py           experimental visual-anomaly screening
 ```
 
 `models.py` contains the immutable versioned contracts, while `cli.py` contains only command parsing and user-facing orchestration. Numerical logic is not duplicated in the CLI, batch runner, or demo script.
@@ -52,7 +54,7 @@ media.py            decode/inventory photo sets and inspect video streams
 - Python 3.12 or newer
 - The supplied sample archives, stored locally in the ignored `sample/` directory
 - A Windows, Linux, or macOS environment capable of installing the dependencies declared in `pyproject.toml`
-- FFmpeg/FFprobe on `PATH` for video ingestion only
+- FFmpeg/FFprobe on `PATH` for video inspection and frame extraction
 
 No GPU, cloud account, API key, database, or web server is required.
 
@@ -110,10 +112,33 @@ python -m cozmo_scan ingest photos\room-a `
 
 python -m cozmo_scan ingest videos\room-a.mp4 `
   --tier video `
-  --output runs\media\room-a-video
+  --output runs\media\room-a-video `
+  --evidence `
+  --frames 12
 ```
 
-Each command writes `media-input.json` with relative filenames, SHA-256 hashes, byte counts, dimensions, formats, and available video duration/frame/codec metadata. Absolute source paths are not published. The photo/video tier product is the validated media manifest; calibrated point clouds and measured plans are produced by the LiDAR tier.
+Each command writes `media-input.json` with relative filenames, SHA-256 hashes, byte counts, dimensions, formats, and available video duration/frame/codec metadata. Photo assets also carry deterministic resolution, exposure, sharpness, clipping, and perceptual-duplicate checks. With `--evidence`, video input is sampled at evenly distributed timestamps; every frame is decoded, hashed, screened, and published under `frames/` with `contact-sheet.jpg`. Absolute source paths are not published. These are capture-quality artifacts, not metric reconstruction; calibrated point clouds and measured plans are produced by the LiDAR tier.
+
+## Prototype stitching and visual screening
+
+Two completed LiDAR `result.json` artifacts can be aligned from corresponding control points such as doorway endpoints. The anchor file contains equal `source` and `target` arrays with at least two `[x, y]` points:
+
+```powershell
+python -m cozmo_scan stitch room-b\result.json room-a\result.json `
+  --anchors doorway-anchors.json `
+  --output runs\stitched\room-b-to-a.json
+```
+
+The output contains the rigid transform, anchor residuals, transformed source walls and floor outline, and unique candidate wall matches scored by orientation, length, and placement. This is a manually initialized prototype, not automatic whole-property registration.
+
+An explicitly experimental screen can flag thin, dark, locally contrasting image regions for review:
+
+```powershell
+python -m cozmo_scan screen-damage runs\media\room-a-video\frames `
+  --output runs\media\room-a-video\damage-screen.json
+```
+
+The screen publishes hashes, candidate fractions, normalized bounding boxes, limitations, and a human-inspection scope. It never declares structural damage, proves absence, or estimates repair quantities without labelled evidence and surface scale.
 
 ## Reproducible demonstration
 
@@ -331,7 +356,7 @@ They are labelled `precision` and never `accuracy`, and the distinction matters:
 | `single_scan_floor_only.zip` | 45.52, [43.98, 45.50] | no ceiling |
 | `single_scan_with_ceiling.zip` | 41.12, [38.73, 84.45] | 2.4012, [2.4011, 2.4025] |
 
-The ceiling height is precise to under a millimetre, well inside the 1.5 cm evaluation gate, which is a statement about estimator stability and not about whether 2.40 m is correct. The wide area interval on the third capture is not noise: 8% of resamples selected the convex fallback instead of the concave contour, so the interval is bimodal across two estimators and the result says so in a warning. Opening widths have no interval yet and report that explicitly.
+The ceiling height is precise to under a millimetre, well inside the 1.5 cm evaluation gate, which is a statement about estimator stability and not about whether 2.40 m is correct. The wide area interval on the third capture is not noise: 8% of resamples selected the convex fallback instead of the concave contour, so the interval is bimodal across two estimators and the result says so in a warning. Detected opening widths also receive intervals when the same named opening reappears in enough point resamples; otherwise the omission and successful-resample count are reported.
 
 Intervals cost runtime: a three-capture batch goes from about 8 s to about 32 s at the default 64 resamples. The `test` profile uses 8.
 

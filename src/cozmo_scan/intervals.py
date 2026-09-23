@@ -34,12 +34,14 @@ from cozmo_scan.floorplan import (
     select_floor_outline,
     trim_boundary_outliers,
 )
+from cozmo_scan.grid import build_occupancy_cells
 from cozmo_scan.models import (
     IntervalConfig,
     MeasurementInterval,
     StructureConfig,
     StructureSummary,
 )
+from cozmo_scan.openings import analyze_openings
 
 #: Resamples that must succeed before an interval is published. A resample can
 #: fail legitimately, for example when the resampled points no longer support an
@@ -55,6 +57,7 @@ def build_measurement_intervals(
     ceiling_heights_m: NDArray[np.float64] | None,
     structure: StructureConfig,
     config: IntervalConfig,
+    points_xyz_m: NDArray[np.float64] | None = None,
 ) -> tuple[tuple[MeasurementInterval, ...], tuple[str, ...]]:
     """Return precision intervals for the published measurements, plus warnings.
 
@@ -108,12 +111,95 @@ def build_measurement_intervals(
 
     openings = summary.openings
     if openings is not None and openings.status == "available" and openings.openings:
-        warnings.append(
-            f"No interval is published for {len(openings.openings)} opening width(s). "
-            "The width estimator resolves each edge against individual blocking "
-            "points, and resampling it is not yet implemented."
-        )
+        if points_xyz_m is None or projected_floor_xy_m is None:
+            warnings.append(
+                f"No interval is published for {len(openings.openings)} opening width(s): "
+                "the retained point evidence was unavailable to the interval builder."
+            )
+        else:
+            opening_samples = bootstrap_opening_widths(
+                summary,
+                points_xyz_m=points_xyz_m,
+                projected_floor_xy_m=projected_floor_xy_m,
+                structure=structure,
+                config=config,
+            )
+            for opening in openings.openings:
+                samples = opening_samples.get(opening.opening_id)
+                if samples is None or len(samples) < MINIMUM_SUCCESSFUL_RESAMPLES:
+                    warnings.append(
+                        f"No opening-width interval for {opening.opening_id}: only "
+                        f"{0 if samples is None else len(samples)} of {config.resamples} "
+                        "resamples reproduced that opening."
+                    )
+                    continue
+                low, high = percentile_interval(samples, config.confidence_level)
+                intervals.append(
+                    MeasurementInterval(
+                        metric="opening_width_m",
+                        target_id=opening.opening_id,
+                        unit="metre",
+                        value=opening.width_m,
+                        low=low,
+                        high=high,
+                        confidence_level=config.confidence_level,
+                        resamples=len(samples),
+                    )
+                )
     return tuple(intervals), tuple(warnings)
+
+
+def bootstrap_opening_widths(
+    summary: StructureSummary,
+    *,
+    points_xyz_m: NDArray[np.float64],
+    projected_floor_xy_m: NDArray[np.float64],
+    structure: StructureConfig,
+    config: IntervalConfig,
+) -> dict[str, NDArray[np.float64]]:
+    """Re-run the opening detector on point resamples and collect named widths.
+
+    Plane locations and floor occupancy remain fixed to the published structural
+    solution. The resampling therefore measures stability of each opening edge,
+    rather than mixing plane-fitting and floor-boundary variation into one number.
+    """
+    openings = summary.openings
+    if openings is None or openings.status != "available" or not openings.openings:
+        return {}
+    points = np.asarray(points_xyz_m, dtype=np.float64)
+    points = points[np.isfinite(points).all(axis=1)]
+    floor_points = np.asarray(projected_floor_xy_m, dtype=np.float64)
+    floor_points = floor_points[np.isfinite(floor_points).all(axis=1)]
+    if len(points) < 3 or len(floor_points) < 3:
+        return {}
+    expected_ids = {opening.opening_id for opening in openings.openings}
+    samples: dict[str, list[float]] = {opening_id: [] for opening_id in expected_ids}
+    generator = np.random.default_rng(config.random_seed + 1)
+    occupancy = build_occupancy_cells(floor_points, structure.boundary_grid_size_m)
+    floor_normal = np.asarray(summary.floor.normal_xyz, dtype=np.float64)
+    floor_centroid = np.asarray(summary.floor.centroid_xyz_m, dtype=np.float64)
+    for _ in range(config.resamples):
+        drawn = points[generator.integers(0, len(points), len(points))]
+        analysis = analyze_openings(
+            points_xyz_m=drawn,
+            floor_normal_xyz=floor_normal,
+            floor_centroid_xyz_m=floor_centroid,
+            ceiling_height_m=summary.ceiling_height_m,
+            coordinates=summary.floor_coordinates,
+            walls=summary.walls,
+            occupancy_cells=occupancy,
+            grid_size_m=structure.boundary_grid_size_m,
+            config=structure,
+        )
+        if analysis.status != "available":
+            continue
+        for opening in analysis.openings:
+            if opening.opening_id in samples:
+                samples[opening.opening_id].append(opening.width_m)
+    return {
+        opening_id: np.asarray(values, dtype=np.float64)
+        for opening_id, values in samples.items()
+    }
 
 
 def _estimator_stability_warnings(

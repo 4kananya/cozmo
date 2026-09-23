@@ -51,6 +51,24 @@ class PhotoIngestionTests(unittest.TestCase):
             with self.assertRaisesRegex(MediaIngestionError, "Cannot decode photo"):
                 ingest_media(path, "photo")
 
+    def test_quality_reasons_and_duplicate_images_are_published(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = Image.new("RGB", (800, 600), "black")
+            image.save(root / "a.jpg")
+            image.save(root / "b.jpg")
+
+            result = ingest_media(root, "photo")
+
+            first, second = result.assets
+            assert first.quality is not None and second.quality is not None
+            self.assertFalse(first.quality.accepted)
+            self.assertTrue(any("dark" in reason for reason in first.quality.rejection_reasons))
+            self.assertEqual(second.quality.duplicate_of, "a.jpg")
+            self.assertTrue(
+                any("duplicate" in reason for reason in second.quality.rejection_reasons)
+            )
+
 
 class VideoIngestionTests(unittest.TestCase):
     def test_video_stream_metadata_is_validated_and_recorded(self) -> None:

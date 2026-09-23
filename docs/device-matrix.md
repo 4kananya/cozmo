@@ -7,8 +7,8 @@ Which input tier runs on which hardware, and what each tier honestly delivers. A
 | Tier | Status | Capture hardware | Processing hardware | What it produces | Accuracy |
 |---|---|---|---|---|---|
 | LiDAR depth plus ARKit pose, captured with Stray Scanner | Implemented | LiDAR equipped Pro class iPhone, iPhone 12 Pro or later | Any Windows, Linux or macOS laptop with Python 3.12. CPU only | Dimensioned floor outline with area, perimeter, principal dimensions and per edge lengths; wall planes with deterministic identifiers; ceiling height when an evidence supported ceiling plane exists; conservatively gated door and window openings with measured widths; plan as SVG and PNG; point cloud as PLY; machine readable `result.json` and a Markdown report | Not established, no ground truth supplied |
-| Video | Implemented ingestion | Any camera producing MP4, MOV, or M4V | Laptop with Python 3.12 and FFprobe | `media-input.json` containing validated stream metadata, relative name, SHA-256, and byte count | Input validation and provenance only; metric geometry is the LiDAR product |
-| Photo | Implemented ingestion | Any camera producing JPEG, PNG, TIFF, BMP, or WebP | Any Windows, Linux, or macOS laptop with Python 3.12 | `media-input.json` containing decoded dimensions, format, relative name, SHA-256, and byte count | Input validation and provenance only; metric geometry is the LiDAR product |
+| Video | Implemented with limitations | Any camera producing MP4, MOV, or M4V | Laptop with Python 3.12, FFmpeg and FFprobe | Stream manifest; evenly sampled, hashed and quality-screened frames; contact sheet | Capture-quality evidence only; metric geometry is the LiDAR product |
+| Photo | Implemented with limitations | Any camera producing JPEG, PNG, TIFF, BMP, or WebP | Any Windows, Linux, or macOS laptop with Python 3.12 | Manifest, hashes, resolution/exposure/sharpness/clipping checks, duplicate detection and contact sheet | Capture-quality evidence only; metric geometry is the LiDAR product |
 
 An iPhone without LiDAR can feed the media-ingestion tiers, but those tiers do not produce metric geometry or a floor plan.
 
@@ -29,10 +29,10 @@ An iPhone without LiDAR can feed the media-ingestion tiers, but those tiers do n
 | Requirement | Value |
 |---|---|
 | Runtime | Python 3.12 |
-| Runtime dependencies | NumPy, Pillow, Pydantic; FFprobe for video ingestion |
+| Runtime dependencies | NumPy, Pillow, Pydantic; FFmpeg and FFprobe for video evidence |
 | Compute | CPU only. No GPU |
 | Network | None. Fully offline. No cloud account, no API key |
-| Command | `python -m cozmo_scan ingest <media> --tier photo|video --output <dir>`; `python -m cozmo_scan run <capture.zip> --output <dir> --profile fast` for LiDAR geometry |
+| Command | `python -m cozmo_scan ingest <media> --tier photo|video --output <dir> --evidence`; `python -m cozmo_scan run <capture.zip> --output <dir> --profile fast` for LiDAR geometry |
 | Observed runtime | All three supplied captures process in about 10 seconds in total on an Apple silicon laptop under the `fast` profile |
 
 ## Accuracy
@@ -47,11 +47,11 @@ Two coverage facts are worth reading alongside any measurement:
 ## Current scope boundaries
 
 - metric reconstruction and measured plans use LiDAR input;
-- no multi room stitching;
-- no damage detection;
+- manually anchored rigid stitching is a prototype; there is no automatic property-wide registration or loop closure;
+- visual damage screening is experimental and not validated as structural diagnosis;
 - no concealed condition flags;
-- no repair scope generation;
-- no calibrated interval coverage. Bootstrap *precision* intervals are published per measurement, and opening width has none;
+- no repair quantity generation; the prototype produces an inspection scope only;
+- no calibrated interval coverage. Bootstrap *precision* intervals include opening widths only when enough resamples reproduce the same opening;
 - no established accuracy figure.
 
 ## Facts to confirm on the day

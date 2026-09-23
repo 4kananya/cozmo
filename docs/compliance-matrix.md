@@ -6,8 +6,8 @@ This matrix maps each material project capability to the implementation and evid
 |---|---|---|---|---|
 | Stock capture route | `docs/capture-route.md` | Capture checklist | Implemented | Route 2 protocol for Stray Scanner and a LiDAR-equipped iPhone. No custom iOS application. |
 | Device and tier matrix | `docs/device-matrix.md` | Device matrix | Implemented | All three ingestion paths and the LiDAR-only geometry boundary are mapped to hardware and commands. |
-| Photo input tier | `src/cozmo_scan/media.py` | `media-input.json` | Implemented | Image sets are decoded, hashed, and inventoried in a versioned, path-safe manifest. Metric geometry is produced by the LiDAR tier. |
-| Video input tier | `src/cozmo_scan/media.py` | `media-input.json` | Implemented | FFprobe validates the primary stream; metadata and provenance are published in a versioned manifest. Metric geometry is produced by the LiDAR tier. |
+| Photo input tier | `src/cozmo_scan/media.py` | `media-input.json`, `contact-sheet.jpg` | Implemented with limitations | Images are decoded, hashed, checked for resolution, exposure, sharpness, clipping and perceptual duplicates. Thresholds screen capture quality; metric geometry is produced by the LiDAR tier. |
+| Video input tier | `src/cozmo_scan/media.py` | `media-input.json`, sampled frames, `contact-sheet.jpg` | Implemented with limitations | FFprobe validates the stream and FFmpeg extracts evenly distributed frames. Frames are hashed and quality-screened. This is not video-only metric geometry. |
 | LiDAR input tier | `src/cozmo_scan/dataset.py`, `reconstruction.py` | `reconstruction.ply`, `result.json` | Implemented with limitations | Three supplied Stray Scanner captures validate and run locally. |
 | One command per capture | `src/cozmo_scan/cli.py` | Seven-file `run` bundle | Implemented | `python -m cozmo_scan run ...` validates, reconstructs, measures, and publishes. |
 | All-sample execution | `src/cozmo_scan/batch.py`, `scripts/demo.py` | `batch.json`, `batch-report.md` | Implemented | One frozen configuration processes all three captures sequentially. |
@@ -16,11 +16,11 @@ This matrix maps each material project capability to the implementation and evid
 | Ceiling height | `src/cozmo_scan/floorplan.py` | `result.json`, `report.md` | Implemented with limitations | Published only when an evidence-supported ceiling plane exists. Real accuracy is unmeasured. |
 | Openings and widths | `src/cozmo_scan/openings.py` | `result.json`, rendered plans | Implemented with limitations | Conservative pass-through/far-floor evidence gates. Synthetic door and window widths are within 2 cm; physical accuracy is unmeasured. |
 | Room adjacency | `src/cozmo_scan/openings.py` | `result.json` | Partial | Near/far scanned areas can support an adjacency observation. No global room identity or stitched graph. |
-| Multi-room stitching | Not present | None | Not implemented | Independent captures are not globally registered or placed. |
-| Damage regions and classes | Not present | None | Not implemented | No labelled damage data and no detector. |
+| Multi-room stitching | `src/cozmo_scan/stitching.py` | Prototype stitching JSON | Prototype | Manual corresponding anchors estimate a rigid transform; wall candidates are matched by orientation, length and placement. Automatic anchors, loop closure and physical validation are absent. |
+| Damage regions and classes | `src/cozmo_scan/damage.py` | Experimental screening JSON | Prototype; not evaluated | Local-contrast screening flags crack-like visual anomalies for review. It is not a structural diagnosis and has no labelled-data validation. |
 | Concealed-condition flags | Not present | None | Not implemented | Not inferred from the supplied evidence. |
-| Repair-scope line items | Not present | None | Not implemented | Depends on validated damage and surface evidence. |
-| Interval on every measurement | `src/cozmo_scan/intervals.py` | `result.json` | Partial | Bootstrap precision intervals cover area, perimeter, principal dimensions, and available ceiling height. Opening width has no interval. |
+| Repair-scope line items | `src/cozmo_scan/damage.py` | Experimental screening JSON | Prototype boundary only | The artifact creates a human inspection scope and explicitly refuses repair quantities until damage and scale are validated. |
+| Interval on every measurement | `src/cozmo_scan/intervals.py` | `result.json` | Implemented with limitations | Bootstrap precision intervals cover area, perimeter, principal dimensions, available ceiling height, and opening widths that reappear in enough point resamples. Precision is not accuracy. |
 | Calibrated interval coverage | `src/cozmo_scan/benchmark.py` | `evaluation.json`, evaluation report | Not evaluated | Coverage can be reported when truth is supplied; no physical truth is present and no pass threshold is invented. |
 | Drift accountability | `src/cozmo_scan/drift.py` | `drift-ablation.json`, `drift-ablation.md` | Implemented with limitations | Both arms are rebuilt and compared; all supplied captures roll back to recorded poses. Horizontal drift and yaw are untouched. |
 | Versioned JSON contract | `src/cozmo_scan/models.py` | Schema `1.4.0` results | Implemented | Readers accept result schemas `1.0.0` through `1.4.0`; missing legacy evidence is not fabricated. |
@@ -37,8 +37,8 @@ This matrix maps each material project capability to the implementation and evid
 | Fix declaration | `docs/fix-loop-declaration.md` | Declaration | Implemented | Written before the boundary-support change and records the failing gate and prediction. |
 | Fix result and before/after regeneration | `docs/fix-loop-result.md` | Result plus commands | Implemented with limitations | Before/after runs are reproducible from the local samples; generated outputs remain intentionally untracked. |
 | Technical report | `docs/technical-report.md` | Technical report | Implemented | Covers architecture, tiers, drift, error budget, calibration, fix loop, and failure modes. |
-| Test evidence | `tests/` | Automated test suite | Implemented | Unit, contract, media-ingestion, synthetic-geometry, failure-path, rendering, determinism, and audit regressions. |
-| Offline local runtime | `pyproject.toml` | CLI and artifacts | Implemented | NumPy, Pillow, and Pydantic; local FFprobe for video inspection. No account, API key, GPU, database, or hosted service. |
+| Test evidence | `tests/` | Automated test suite | Implemented | Unit, contract, media-evidence, stitching, anomaly-screening, synthetic-geometry, failure-path, rendering, determinism, and audit regressions. |
+| Offline local runtime | `pyproject.toml` | CLI and artifacts | Implemented | NumPy, Pillow, and Pydantic; local FFmpeg/FFprobe for video evidence. No account, API key, GPU, database, or hosted service. |
 ## Scope interpretation
 
 The implemented product has three deterministic input paths and an offline LiDAR geometry pipeline with conservative evidence handling. Photo and video produce validated media manifests; LiDAR additionally produces measured geometry. The remaining scope boundaries are documented per capability rather than hidden behind a single tier-level label.

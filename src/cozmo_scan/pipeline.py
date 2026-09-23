@@ -220,6 +220,7 @@ def build_run_result(
         ceiling_heights_m=structure.ceiling_heights_m,
         structure=config.structure,
         config=config.intervals,
+        points_xyz_m=reconstruction.points_xyz_m,
     )
     warnings = _unique_warnings(
         tuple(

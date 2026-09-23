@@ -22,7 +22,7 @@ Use this checklist to record one room for Cozmo Scan with the stock iOS app Stra
 6. At each window, hold square to it for five seconds and tilt slowly from below the sill to above the head. Capture the surrounding wall and frame, not only the glass.
 7. Return to the start point, face the original direction, remain still for three seconds, and stop. Aim for three to four minutes total.
 
-Record a separate file for every room. Multi-room stitching is not implemented, so walking through several rooms does not create a whole-property plan.
+Record a separate file for every room. A prototype can align completed room results from manually supplied corresponding doorway or control points, but automatic multi-room stitching is not implemented; walking through several rooms does not by itself create a verified whole-property plan.
 
 ## Difficult surfaces
 

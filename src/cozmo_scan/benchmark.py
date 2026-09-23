@@ -831,16 +831,16 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
         (
             "Photo input tier",
             "`src/cozmo_scan/media.py`",
-            "`media-input.json`",
-            "Implemented",
-            "Image sets are decoded, hashed, and inventoried in a versioned manifest. Metric geometry is the LiDAR-tier product.",
+            "`media-input.json`, `contact-sheet.jpg`",
+            "Implemented with limitations",
+            "Images are decoded, hashed, screened for resolution, exposure, sharpness and clipping, and checked for perceptual duplicates. Metric geometry is the LiDAR-tier product.",
         ),
         (
             "Video input tier",
             "`src/cozmo_scan/media.py`",
-            "`media-input.json`",
-            "Implemented",
-            "FFprobe validates video streams and the project records hashes and metadata in a versioned manifest. Metric geometry is the LiDAR-tier product.",
+            "`media-input.json`, sampled frames, `contact-sheet.jpg`",
+            "Implemented with limitations",
+            "FFprobe validates streams and FFmpeg extracts evenly distributed, hashed, quality-screened frames. This is not video-only metric geometry.",
         ),
         (
             "LiDAR tier",
@@ -904,25 +904,24 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
             "`result.json`",
             _interval_implementation_status(evaluation),
             "Bootstrap **precision** intervals on floor area, perimeter, principal "
-            "dimensions and ceiling height: the observed points are resampled and the "
-            "same estimator re-run. Explicitly not accuracy, since a systematic error "
-            "would move every resample identically. Opening widths have no interval "
-            "yet and say so. "
+            "dimensions, ceiling height, and sufficiently reproducible opening widths: "
+            "the observed points are resampled and the same estimator re-run. Explicitly "
+            "not accuracy, since a systematic error would move every resample identically. "
             + _markdown_plain(evaluation.interval_calibration.reason),
         ),
         (
             "Multi-room stitching",
-            "not present",
-            "none",
-            "Not implemented",
-            "Supplied captures are independent single sweeps. Opening-based adjacency is a prerequisite, not a substitute.",
+            "`src/cozmo_scan/stitching.py`",
+            "prototype stitching JSON",
+            "Prototype",
+            "Manual anchors initialize rigid 2D alignment and wall matching. Automatic anchors, loop closure and physical validation are absent.",
         ),
         (
             "Damage regions with class and metric extent",
-            "not present",
-            "none",
-            "Not implemented",
-            "No labelled damage data. No detections are fabricated.",
+            "`src/cozmo_scan/damage.py`",
+            "experimental screening JSON",
+            "Prototype; not evaluated",
+            "Flags crack-like local-contrast candidates for human review. No structural diagnosis, repair quantity, or labelled-data validation is claimed.",
         ),
         (
             "Concealed-damage flags with the rule that fired",

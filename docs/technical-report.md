@@ -1,6 +1,6 @@
 # Cozmo Scan technical report
 
-Cozmo Scan is a local Python 3.12 pipeline that validates and inventories photo/video media and turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and inspectable artifacts. It runs successfully on the three supplied LiDAR captures and is deliberately conservative when evidence is missing. Each tier has an explicit output contract: media manifests for photo/video and measured geometry for LiDAR. Global multi-room stitching, damage analysis, repair scope, and physical benchmark evidence are outside the current processing scope.
+Cozmo Scan is a local Python 3.12 pipeline that validates photo/video media and turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and inspectable artifacts. It runs successfully on the three supplied LiDAR captures and is deliberately conservative when evidence is missing. Photo/video evidence includes deterministic quality checks and sampled video frames. Manually anchored room alignment and visual-anomaly screening are prototypes; automatic global stitching, structural diagnosis, repair quantities, and physical benchmark evidence remain outside the validated scope.
 
 No survey, tape, or laser reference was supplied. Consequently, no number in this report is an absolute-accuracy claim. Fit residuals describe internal consistency, bootstrap intervals describe estimator precision, and synthetic fixtures test known geometry. None substitutes for measurements of the physical rooms.
 
@@ -36,23 +36,25 @@ photo/video file or directory
         |
         v
 media.py            decode images, inspect video streams, hash, publish manifest
+        +------> stitching.py  manual-anchor registration and wall candidates
+        +------> damage.py     experimental visual-anomaly screen
 ```
 
 Depth pixels that pass confidence and range checks are back-projected with scaled camera intrinsics, transformed by recorded ARKit camera-to-world poses, and fused into a deterministic voxel cloud. Structural analysis identifies the floor relative to the camera trajectory, defines a floor-local coordinate system, and builds an occupancy-supported outline from floor inliers. A concave outline is accepted only when retention, direct support, support improvement, topology, area, and pathology guards pass; otherwise the convex fallback is explicit.
 
 Wall planes receive deterministic per-capture identifiers and finite spans. Opening candidates are vertical void runs bounded by credible wall material. A candidate must have solid flanks, acceptable dimensions, sufficient wall coverage, and positive evidence behind the void through pass-through points or far-side floor. Absence of wall returns alone is never treated as a door.
 
-`ingest` publishes `media-input.json` for a photo set or video. `run` publishes exactly seven LiDAR files: `result.json`, `reconstruction.ply`, `topdown.png`, `trajectory.png`, `floorplan.svg`, `floorplan.png`, and `report.md`. `batch` adds `batch.json` and `batch-report.md`; `evaluate` produces an evaluation JSON, report, and capability matrix; `ablate` produces JSON and Markdown. Current result, structure, and batch schema is `1.4.0`, with readers for `1.0.0` through `1.3.0`.
+`ingest` publishes `media-input.json`; `--evidence` adds hashed sampled frames and `contact-sheet.jpg`. `stitch` writes an anchored registration artifact, and `screen-damage` writes an experimental review artifact. `run` publishes exactly seven LiDAR files: `result.json`, `reconstruction.ply`, `topdown.png`, `trajectory.png`, `floorplan.svg`, `floorplan.png`, and `report.md`. `batch` adds `batch.json` and `batch-report.md`; `evaluate` produces an evaluation JSON, report, and capability matrix; `ablate` produces JSON and Markdown. Current result, structure, and batch schema is `1.4.0`, with readers for `1.0.0` through `1.3.0`.
 
 ## 2 Tier design and device matrix
 
 | Tier | Status | Input | Output |
 |---|---|---|---|
 | LiDAR | Implemented with limitations | Stray Scanner depth, confidence, intrinsics, and ARKit poses from a LiDAR-equipped Pro iPhone | Measured coverage outline, walls, optional ceiling, conservative openings, PLY, SVG/PNG, JSON, report |
-| Video | Implemented ingestion | MP4, MOV, or M4V inspected by local FFprobe | Versioned media manifest with stream metadata and provenance |
-| Photo | Implemented ingestion | Decoded JPEG, PNG, TIFF, BMP, or WebP file set | Versioned media manifest with dimensions, formats, and provenance |
+| Video | Implemented with limitations | MP4, MOV, or M4V inspected by FFprobe and sampled by FFmpeg | Versioned manifest, hashes, sampled frames, quality evidence and contact sheet |
+| Photo | Implemented with limitations | Decoded JPEG, PNG, TIFF, BMP, or WebP file set | Versioned manifest, hashes, quality evidence, duplicate checks and contact sheet |
 
-The implementation is CPU-only and uses NumPy, Pillow, and Pydantic; video inspection uses a local FFprobe executable. It requires no GPU, account, API key, database, hosted service, or network during processing. Three bounded LiDAR profiles share one pipeline: `test` uses 10 frames and 8 cm voxels, `fast` uses 200 frames and 4 cm voxels, and `quality` uses 500 frames and 2 cm voxels.
+The implementation is CPU-only and uses NumPy, Pillow, and Pydantic; video evidence uses local FFmpeg and FFprobe executables. It requires no GPU, account, API key, database, hosted service, or network during processing. Three bounded LiDAR profiles share one pipeline: `test` uses 10 frames and 8 cm voxels, `fast` uses 200 frames and 4 cm voxels, and `quality` uses 500 frames and 2 cm voxels.
 
 The architectural boundary between ingestion and geometry is the metric point cloud. Photo and video inputs are genuinely decoded or stream-validated, hashed, and recorded without absolute paths. They still lack defensible metric scale, camera placement, uncertainty, and cross-room registration, so the media command stops at ingestion rather than emitting a fabricated point cloud or floor plan.
 
@@ -122,9 +124,9 @@ The declaration and result are in `docs/fix-loop-declaration.md` and `docs/fix-l
 - Opening detection prefers a miss over a phantom and can reject real glazed or poorly observed openings.
 - Wall and opening IDs are deterministic per capture and configuration, not stable physical identities across captures.
 - Adjacency evidence is local to one wall and is not a property-wide room graph.
-- Published intervals measure precision, not accuracy, and opening width has no interval.
+- Published intervals measure precision, not accuracy. An opening-width interval is omitted when too few point resamples reproduce the same named opening.
 - The drift ablation addresses vertical floor-relative error only.
-- Photo/video ingestion is implemented; metric reconstruction is the LiDAR-tier product. Stitching, damage, concealed-condition, repair-scope, and incumbent comparison remain outside the current scope.
+- Photo/video capture evidence is implemented; metric reconstruction remains the LiDAR-tier product. Manually anchored stitching and visual-anomaly screening are prototypes. Automatic global stitching, structural diagnosis, concealed-condition inference, repair quantities, and incumbent comparison remain outside the validated scope.
 - Real accuracy, calibration coverage, and repeatability remain unmeasured because the required physical benchmark data is absent.
 
 The project's strongest claim is reproducibility: the dependency set can be installed locally, media can be validated into deterministic manifests, the supplied LiDAR archives can be validated, the same geometry and identifiers can be reproduced, every warning and evidence field can be inspected, the automated suite can be run, and independent truth can be supplied to the evaluator. The complete capability status is in `docs/compliance-matrix.md`.
