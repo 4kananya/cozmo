@@ -404,7 +404,7 @@ def run_drift_ablation(
 
 
 def render_drift_report(ablation: DriftAblation) -> str:
-    """Render the on/off comparison a reviewer can read without the JSON."""
+    """Render the on/off comparison in a readable form alongside the JSON."""
     lines = [
         "# Drift correction ablation",
         "",

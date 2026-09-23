@@ -1,4 +1,4 @@
-"""CP10 tests: wall identity, opening evidence gates, adjacency, and contracts."""
+"""Tests for wall identity, opening evidence gates, adjacency, and contracts."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from structure_factory import (
     make_two_rooms_with_doorway,
 )
 
-#: The assignment scores opening widths at 2 cm; synthetic truth must clear it.
+#: The evaluation gate scores opening widths at 2 cm; synthetic truth must clear it.
 OPENING_WIDTH_TOLERANCE_M = 0.02
 DOOR_WIDTH_M = 0.90
 WINDOW_WIDTH_M = 1.20
@@ -74,7 +74,7 @@ class WallIdentityTests(unittest.TestCase):
 
 
 class OpeningDetectionTests(unittest.TestCase):
-    def test_door_and_window_are_measured_within_the_assignment_tolerance(self) -> None:
+    def test_door_and_window_are_measured_within_the_evaluation_tolerance(self) -> None:
         analysis = _analysis()
 
         by_class = {opening.classification: opening for opening in analysis.openings}

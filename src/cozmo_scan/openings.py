@@ -921,7 +921,7 @@ def _refine_void_edges(
     """Locate the opening edges from blocking points instead of bin boundaries.
 
     Bin quantisation alone caps width resolution at the profile bin size, which
-    is coarser than the assignment's 2 cm opening gate. The physical edge is
+    is coarser than the 2 cm opening-width gate. The physical edge is
     where wall material at the opening's own height stops, so the nearest such
     point on each side is a far tighter estimate. Falls back to the bin edges
     when no blocking point is available.

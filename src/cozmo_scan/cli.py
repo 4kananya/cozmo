@@ -16,10 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the top-level command-line parser."""
     parser = argparse.ArgumentParser(
         prog="cozmo-scan",
-        description=(
-            "Reconstruct and measure supplied Stray Scanner LiDAR captures. "
-            "Processing commands are added through approved checkpoints."
-        ),
+        description="Reconstruct and measure Stray Scanner LiDAR captures.",
     )
     parser.add_argument(
         "--version",
@@ -50,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="build a bounded metric point cloud and diagnostic preview",
         description=(
             "Fuse selected LiDAR depth frames using recorded camera poses and "
-            "write CP03 diagnostic artifacts."
+            "write reconstruction diagnostics."
         ),
     )
     reconstruct_parser.add_argument(
@@ -123,7 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="generate the complete reviewer-facing artifact bundle",
+        help="generate the complete project artifact bundle",
         description=(
             "Validate, reconstruct, measure, evaluate, and write the final "
             "seven-file result bundle for one capture."
@@ -202,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="compare completed batch results with independent ground truth",
         description=(
             "Load a batch artifact directory and a strict ground-truth manifest, "
-            "then write assignment-gate, repeatability, and compliance evidence."
+            "then write evaluation-gate, repeatability, and capability evidence."
         ),
     )
     evaluate_parser.add_argument(
@@ -293,7 +290,7 @@ def handle_validate(arguments: argparse.Namespace) -> int:
 
 
 def handle_reconstruct(arguments: argparse.Namespace) -> int:
-    """Run metric reconstruction and write its CP03 diagnostic artifacts."""
+    """Run metric reconstruction and write its diagnostic artifacts."""
     from cozmo_scan.outputs import OutputError, write_reconstruction_outputs
     from cozmo_scan.reconstruction import (
         ReconstructionError,
@@ -332,7 +329,7 @@ def handle_reconstruct(arguments: argparse.Namespace) -> int:
 
 
 def handle_measure(arguments: argparse.Namespace) -> int:
-    """Reconstruct a capture, measure its structure, and write CP04 artifacts."""
+    """Reconstruct a capture, measure its structure, and write measurement artifacts."""
     from cozmo_scan.floorplan import StructureError, analyze_structure
     from cozmo_scan.outputs import OutputError, write_measurement_outputs
     from cozmo_scan.reconstruction import (

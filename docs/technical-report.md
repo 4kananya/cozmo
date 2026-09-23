@@ -1,6 +1,6 @@
 # Cozmo Scan technical report
 
-Cozmo Scan is a local Python 3.12 pipeline that turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and reviewable artifacts. It runs successfully on the three supplied captures and is deliberately conservative when evidence is missing. It is not the complete three-tier property product requested by the assignment: photo and video reconstruction, global multi-room stitching, damage analysis, repair scope, and physical benchmark evidence are absent.
+Cozmo Scan is a local Python 3.12 pipeline that turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and inspectable artifacts. It runs successfully on the three supplied captures and is deliberately conservative when evidence is missing. It does not currently provide photo or video reconstruction, global multi-room stitching, damage analysis, repair scope, or physical benchmark evidence.
 
 No survey, tape, or laser reference was supplied. Consequently, no number in this report is an absolute-accuracy claim. Fit residuals describe internal consistency, bootstrap intervals describe estimator precision, and synthetic fixtures test known geometry. None substitutes for measurements of the physical rooms.
 
@@ -96,7 +96,7 @@ The ceiling estimate on the third capture is 2.4012 m with interval `[2.4011, 2.
 
 Opening detection is also deliberately sparse. `single_room` publishes none because its long walls are only 41% to 51% solid. `single_scan_floor_only` publishes one `window_like` opening at 0.77 m with 217 pass-through points. `single_scan_with_ceiling` publishes none because no candidate has evidence behind it. No capture claims room adjacency.
 
-The evaluator encodes the assignment's ceiling, opening, photo/video wall, and repeatability gates. It also counts missing and phantom openings and reports interval coverage descriptively. Without physical truth, the gates remain unevaluated rather than being scored against the pipeline's own output.
+The evaluator encodes ceiling, opening, photo/video wall, and repeatability gates. It also counts missing and phantom openings and reports interval coverage descriptively. Without physical truth, the gates remain unevaluated rather than being scored against the pipeline's own output.
 
 ## 6 Fix loop
 
@@ -122,4 +122,4 @@ The declaration and result are in `docs/fix-loop-declaration.md` and `docs/fix-l
 - Photo, video, stitching, damage, concealed-condition, repair-scope, and incumbent-comparison requirements are not implemented.
 - Real accuracy, calibration coverage, and repeatability remain unmeasured because the required physical benchmark data is absent.
 
-The repository's strongest claim is therefore reproducibility, not full assignment compliance: a local reviewer can install the small dependency set, validate the supplied archives, reproduce the same geometry and identifiers, inspect every warning and evidence field, run 187 tests, and independently supply truth to the evaluator. The complete requirement-by-requirement status is in `docs/compliance-matrix.md`.
+The project's strongest claim is reproducibility: the dependency set can be installed locally, the supplied archives can be validated, the same geometry and identifiers can be reproduced, every warning and evidence field can be inspected, all 187 tests can be run, and independent truth can be supplied to the evaluator. The complete capability status is in `docs/compliance-matrix.md`.

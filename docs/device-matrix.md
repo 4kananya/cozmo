@@ -1,6 +1,6 @@
 # Device matrix
 
-Which input tier runs on which hardware, and what each tier honestly delivers. One tier is implemented. The other two are named because the assignment asks for them, and they are marked not implemented rather than described as if they existed. Capture uses a stock iOS app, Stray Scanner, as set out in [capture-route.md](capture-route.md). There is no Cozmo iOS application.
+Which input tier runs on which hardware, and what each tier honestly delivers. One tier is implemented. The other two remain documented scope items and are marked not implemented rather than described as if they existed. Capture uses a stock iOS app, Stray Scanner, as set out in [capture-route.md](capture-route.md). There is no Cozmo iOS application.
 
 ## Input tiers
 

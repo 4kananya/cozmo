@@ -40,7 +40,7 @@ class StrictModel(BaseModel):
 
 
 class InputTier(StrEnum):
-    """Assignment capture-input tier."""
+    """Capture-input tier used by the benchmark."""
 
     PHOTO = "photo"
     VIDEO = "video"
@@ -166,7 +166,7 @@ class GroundTruthManifest(StrictModel):
 
 
 class MeasurementEvaluation(StrictModel):
-    """One prediction/truth comparison and its exact assignment gate."""
+    """One prediction/truth comparison and its exact evaluation gate."""
 
     capture_name: str
     room_id: str
@@ -282,7 +282,7 @@ class CalibrationSummary(StrictModel):
 
 
 class BenchmarkEvaluation(StrictModel):
-    """Complete machine-readable CP08 benchmark result."""
+    """Complete machine-readable benchmark result."""
 
     schema_version: Literal["1.0.0", "1.1.0"] = EVALUATION_SCHEMA_VERSION
     product: Literal["cozmo-scan-evaluation"] = "cozmo-scan-evaluation"
@@ -450,7 +450,7 @@ def evaluate_interval_coverage(
         coverage_rate=rate,
         status=EvaluationStatus.NOT_EVALUATED,
         reason=(
-            "Coverage is reported descriptively; the assignment does not specify "
+            "Coverage is reported descriptively; the benchmark does not specify "
             "a numerical interval-coverage pass threshold."
         ),
     )
@@ -463,7 +463,7 @@ def evaluate_benchmark(
     *,
     loader_warnings: tuple[str, ...] = (),
 ) -> BenchmarkEvaluation:
-    """Compare batch predictions with independent truth and assignment gates."""
+    """Compare batch predictions with independent truth and evaluation gates."""
     rooms = {room.room_id: room for room in manifest.rooms}
     truth_names = {capture.capture_name for capture in manifest.captures}
     warnings = list(loader_warnings)
@@ -476,7 +476,7 @@ def evaluate_benchmark(
         )
     if len(manifest.rooms) < 3:
         warnings.append(
-            "Benchmark protocol is incomplete: the assignment requires at least three rooms."
+            "Benchmark protocol is incomplete: at least three rooms are required."
         )
     tiers_present = tuple(sorted({capture.tier for capture in manifest.captures}, key=str))
     missing_tiers = [tier.value for tier in InputTier if tier not in tiers_present]
@@ -633,7 +633,7 @@ def write_evaluation_outputs(
     *,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Stage and publish the three CP08 evaluation artifacts."""
+    """Stage and publish the three evaluation artifacts."""
     directory = Path(output_directory)
     if directory.exists() and not directory.is_dir():
         raise EvaluationError(f"Output path is not a directory: {directory}")
@@ -677,7 +677,7 @@ def write_evaluation_outputs(
 
 
 def render_evaluation_report(evaluation: BenchmarkEvaluation) -> str:
-    """Render a reviewer-readable benchmark report without overstating results."""
+    """Render a readable benchmark report without overstating results."""
     lines = [
         "# Cozmo Scan ground-truth evaluation",
         "",
@@ -784,9 +784,9 @@ def render_evaluation_report(evaluation: BenchmarkEvaluation) -> str:
             "",
             "- Ceiling gate: absolute error no more than 0.015 m.",
             "- Opening gate: width error no more than 0.02 m on at least 85%, with misses and phantoms counted.",
-            "- Wall accuracy gate: no more than 8% for photo and 3% for video. The assignment gives no equivalent LiDAR wall threshold.",
+            "- Wall accuracy gate: no more than 8% for photo and 3% for video. The benchmark defines no equivalent LiDAR wall threshold.",
             "- Repeatability gate: ceiling spread no more than 0.01 m; wall spread no more than 0.01 m or 0.5%.",
-            "- Floor area and principal dimensions are diagnostic because the assignment does not define a direct pass threshold for those derived values.",
+            "- Floor area and principal dimensions are diagnostic because the benchmark does not define a direct pass threshold for those derived values.",
             f"- Results published {evaluation.predicted_wall_count_across_captures} identified wall segment(s) and {evaluation.predicted_opening_count_across_captures} opening prediction(s). Opening identifiers are deterministic per capture and configuration; a truth manifest must adopt them before a width can match.",
             (
                 "- Published precision intervals were checked descriptively against "
@@ -805,12 +805,11 @@ def render_evaluation_report(evaluation: BenchmarkEvaluation) -> str:
 
 
 def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
-    """Render assignment requirements against code, artifacts, and status.
+    """Render project capabilities against code, artifacts, and status.
 
-    The assignment asks for requirement, file path, artifact, and status. The
-    file path names where the behaviour lives or would have to live, and the
-    artifact names the published file a reviewer can open to check the claim, so
-    every row is traceable rather than asserted.
+    The file path names where the behaviour lives or would have to live, and the
+    artifact names the published file that demonstrates the claim, so every row
+    is traceable rather than asserted.
     """
     openings = evaluation.openings
     rows: tuple[tuple[str, str, str, str, str], ...] = (
@@ -916,7 +915,7 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
             "not present",
             "none",
             "Not implemented",
-            "Supplied captures are independent single sweeps. CP10 adjacency is a prerequisite, not a substitute.",
+            "Supplied captures are independent single sweeps. Opening-based adjacency is a prerequisite, not a substitute.",
         ),
         (
             "Damage regions with class and metric extent",
@@ -1065,16 +1064,9 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
             "Not evaluated",
             "No licensed identical-input competitor run and no common ground truth.",
         ),
-        (
-            "Process evidence from commit history",
-            "Git history",
-            "`git log`",
-            "Implemented with limitations",
-            "Checkpoint history is preserved. The final source-export synchronization is one later commit because the export did not include its original Git metadata.",
-        ),
     )
     lines = [
-        "# Assignment compliance matrix",
+        "# Project capability matrix",
         "",
         "Requirement, where it lives, the artifact that evidences it, and its status. "
         "`Not evaluated` is not a pass, and `Implemented with limitations` is not a claim "
@@ -1171,9 +1163,9 @@ def _published_interval_coverage(
 def _prediction_from_result(result: RunResult) -> _PredictedRoom:
     plan = result.room.floor_plan
     analysis = result.room.openings
-    # CP10 publishes deterministic wall identifiers and measured opening widths.
-    # Results predating CP10, and captures whose opening analysis is unavailable,
-    # keep the CP08 behaviour of empty maps so truth becomes an explicit miss
+    # Current results publish deterministic wall identifiers and measured opening
+    # widths. Older results, and captures whose opening analysis is unavailable,
+    # keep empty maps so truth becomes an explicit miss
     # rather than a silently absent comparison.
     walls_m: dict[str, float] = {}
     openings_m: dict[str, float] = {}
@@ -1268,7 +1260,7 @@ def evaluate_measurement(
     truth: float,
     predicted: float | None,
 ) -> MeasurementEvaluation:
-    threshold_value, threshold_unit, gate_reason = _assignment_gate(metric, capture.tier)
+    threshold_value, threshold_unit, gate_reason = _evaluation_gate(metric, capture.tier)
     gate_applicable = threshold_value is not None
     if predicted is None:
         return MeasurementEvaluation(
@@ -1318,28 +1310,28 @@ def evaluate_measurement(
         gate_applicable=True,
         status=EvaluationStatus.PASSED if passed else EvaluationStatus.FAILED,
         reason=(
-            f"Error is {'within' if passed else 'outside'} the assignment threshold."
+            f"Error is {'within' if passed else 'outside'} the evaluation threshold."
         ),
     )
 
 
-def _assignment_gate(
+def _evaluation_gate(
     metric: str, tier: InputTier
 ) -> tuple[float | None, Literal["metre", "percent"] | None, str]:
     if metric == "ceiling_height":
-        return 0.015, "metre", "Assignment ceiling-height gate."
+        return 0.015, "metre", "Ceiling-height evaluation gate."
     if metric == "opening_width":
-        return 0.02, "metre", "Assignment opening-width gate."
+        return 0.02, "metre", "Opening-width evaluation gate."
     if metric == "wall_length" and tier == InputTier.PHOTO:
-        return 8.0, "percent", "Assignment photo-derived wall gate."
+        return 8.0, "percent", "Photo-derived wall evaluation gate."
     if metric == "wall_length" and tier == InputTier.VIDEO:
-        return 3.0, "percent", "Assignment video-derived wall gate."
+        return 3.0, "percent", "Video-derived wall evaluation gate."
     if metric == "wall_length":
-        return None, None, "The assignment states no direct LiDAR wall-accuracy threshold."
+        return None, None, "The benchmark defines no direct LiDAR wall-accuracy threshold."
     return (
         None,
         None,
-        "The assignment states no direct pass threshold for this derived metric; error is diagnostic only.",
+        "The benchmark defines no direct pass threshold for this derived metric; error is diagnostic only.",
     )
 
 

@@ -1,4 +1,4 @@
-"""Tests for CP06 sequential all-capture processing and summaries."""
+"""Tests for sequential all-capture processing and summaries."""
 
 from __future__ import annotations
 
@@ -256,7 +256,7 @@ class BatchOutputTests(unittest.TestCase):
             self.assertIn("occupancy_concave", report)
             self.assertIn("## Failures", report)
             self.assertIn("bad\\|capture.zip", report)
-            unrelated = destination / "reviewer-note.txt"
+            unrelated = destination / "unrelated-note.txt"
             unrelated.write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(OutputError, "--overwrite"):
                 write_batch_outputs(summary, destination)

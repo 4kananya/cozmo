@@ -1,4 +1,4 @@
-"""Synthetic final-pipeline objects shared by CP05 tests."""
+"""Synthetic final-pipeline objects shared by pipeline tests."""
 
 from __future__ import annotations
 

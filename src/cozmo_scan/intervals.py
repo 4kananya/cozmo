@@ -1,6 +1,6 @@
 """Resampling intervals for published measurements.
 
-The assignment requires a confidence interval on every measurement. What can be
+The project publishes a confidence interval wherever the evidence supports one. What can be
 produced honestly from these captures is a **precision** interval: resample the
 observed points, re-run the same estimator, and report the percentile spread of
 the result. That answers "how stable is this number given the points we

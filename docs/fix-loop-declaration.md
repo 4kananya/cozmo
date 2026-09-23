@@ -14,7 +14,7 @@ Measured on the three supplied captures under the frozen `fast` profile, from `r
 | `single_scan_floor_only.zip` | **57.4%** | 60% | convex fallback | 78.23 m² provisional |
 | `single_scan_with_ceiling.zip` | **48.5%** | 60% | convex fallback | 85.80 m² provisional |
 
-The worst is `single_scan_with_ceiling.zip` at **48.5%, which is 11.5 percentage points below the requirement**. Two of three captures fail. This is the correct gate to declare: it is the only self-imposed numerical gate currently failing on real data, it governs the headline floor-area number, and it is measurable without ground truth. The assignment's opening, ceiling and repeatability gates cannot be scored at all because no survey, tape or laser ground truth was supplied.
+The worst is `single_scan_with_ceiling.zip` at **48.5%, which is 11.5 percentage points below the requirement**. Two of three captures fail. This is the correct gate to declare: it is the only self-imposed numerical gate currently failing on real data, it governs the headline floor-area number, and it is measurable without ground truth. The opening, ceiling and repeatability accuracy gates cannot be scored because no survey, tape or laser ground truth was supplied.
 
 ## 2. Root-cause hypothesis
 
@@ -81,8 +81,8 @@ Confidence: **high** for the support and area numbers, because they were measure
 
 ## 5. What would make this prediction wrong, and what it does not claim
 
-- **It does not claim the new areas are more accurate.** No ground truth was supplied, so neither 78.23 m² nor 45.52 m² can be called correct. The defensible claim is narrower and is the one the gate measures: the published boundary goes from 57.4% and 48.5% backed by observed floor to 96.9% and 95.2%. A 42% and 52% area reduction is consistent with the documented convex-hull failure mode of overfilling unscanned gaps, which has been a stated limitation since CP04, but consistency is not verification.
+- **It does not claim the new areas are more accurate.** No ground truth was supplied, so neither 78.23 m² nor 45.52 m² can be called correct. The defensible claim is narrower and is the one the gate measures: the published boundary goes from 57.4% and 48.5% backed by observed floor to 96.9% and 95.2%. A 42% and 52% area reduction is consistent with the documented convex-hull failure mode of overfilling unscanned gaps, which has been a known structural-analysis limitation, but consistency is not verification.
 - **Readability is a genuine risk.** A 63-vertex plan may be hard to read even with at most 14 dimension labels drawn. If the rendered plan is not legible, the fix is incomplete and the honest outcome is to ship the measurement change and record the rendering shortfall rather than reinstate the cap.
-- **Perimeter ratios of 2.20 and 1.85 are high.** A reviewer could reasonably argue the contour follows unscanned inlets rather than walls. The counter-evidence is the support metric itself, which is exactly the measure of whether the boundary hugs observed floor, at 96.9% and 95.2%.
+- **Perimeter ratios of 2.20 and 1.85 are high.** The contour may follow unscanned inlets rather than walls. The counter-evidence is the support metric itself, which is exactly the measure of whether the boundary hugs observed floor, at 96.9% and 95.2%.
 - **Downstream effects are possible.** Opening detection consumes the same occupancy grid, and the published areas feed the batch summary and the evaluator. If opening counts or the drift ablation move, that must be reported rather than filtered out.
 - **If the measurement is right but the drawing is unusable**, the correct resolution is a rendering improvement, not re-tightening a geometric gate with a presentational number.

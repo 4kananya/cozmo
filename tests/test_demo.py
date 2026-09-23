@@ -1,4 +1,4 @@
-"""Tests for the CP07 reviewer demonstration wrapper."""
+"""Tests for the reproducible demonstration wrapper."""
 
 from __future__ import annotations
 

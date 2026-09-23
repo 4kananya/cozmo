@@ -1,4 +1,4 @@
-"""Tests for the CP05 final result contract and pipeline orchestration."""
+"""Tests for the final result contract and pipeline orchestration."""
 
 from __future__ import annotations
 

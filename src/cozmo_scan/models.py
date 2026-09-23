@@ -113,7 +113,7 @@ class ImuSummary(FrozenModel):
 
 
 class CaptureInventory(FrozenModel):
-    """Reviewer-sized summary of a discovered capture."""
+    """Compact summary of a discovered capture."""
 
     source_name: str
     source_kind: Literal["zip", "directory"]
@@ -219,7 +219,7 @@ class ReconstructionStatistics(FrozenModel):
 
 
 class ReconstructionSummary(FrozenModel):
-    """Machine-readable diagnostic summary for CP03 output."""
+    """Machine-readable reconstruction diagnostic summary."""
 
     schema_version: Literal["1.0.0"] = "1.0.0"
     status: Literal["ok", "ok_with_warnings"]
@@ -468,7 +468,7 @@ class RoomAdjacency(FrozenModel):
 
     This is measured adjacency, not a property-wide room graph. It states that
     this wall separates two substantially scanned floor areas and that this
-    opening connects them, with the area on each side reported so a reviewer can
+    opening connects them, with the area on each side reported so a reader can
     judge the claim. No room identity is asserted, because none is supported.
     """
 
@@ -533,7 +533,7 @@ class OpeningAnalysis(FrozenModel):
 
 
 class StructureSummary(FrozenModel):
-    """Machine-readable CP04 structural geometry and measurement result."""
+    """Machine-readable structural geometry and measurement result."""
 
     schema_version: Literal["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"] = "1.4.0"
     status: Literal["ok", "ok_with_warnings"]
@@ -553,7 +553,7 @@ class StructureSummary(FrozenModel):
 
 
 class CapabilityStatus(StrEnum):
-    """Truthful implementation/evaluation status for an assignment capability."""
+    """Truthful implementation/evaluation status for a project capability."""
 
     SUPPORTED = "supported"
     SUPPORTED_WITH_LIMITATIONS = "supported_with_limitations"
@@ -767,7 +767,7 @@ class QualityMetrics(FrozenModel):
 
 
 class CapabilityAssessment(FrozenModel):
-    """One assignment capability with an explicit evidence-based status."""
+    """One project capability with an explicit evidence-based status."""
 
     capability: str
     status: CapabilityStatus
@@ -775,7 +775,7 @@ class CapabilityAssessment(FrozenModel):
 
 
 class ArtifactRecord(FrozenModel):
-    """One file in the final reviewer-facing bundle."""
+    """One file in the final project bundle."""
 
     key: str
     filename: str
@@ -802,7 +802,7 @@ class RoomResult(FrozenModel):
 
 
 class RunResult(FrozenModel):
-    """Versioned, reviewer-facing product result for one capture."""
+    """Versioned product result for one capture."""
 
     schema_version: Literal["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"] = "1.4.0"
     product: Literal["cozmo-scan"] = "cozmo-scan"

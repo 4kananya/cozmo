@@ -50,7 +50,7 @@ def write_reconstruction_outputs(
     *,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Write the complete CP03 diagnostic artifact set."""
+    """Write the complete reconstruction diagnostic artifact set."""
     directory = Path(output_directory)
     if directory.exists() and not directory.is_dir():
         raise OutputError(f"Output path is not a directory: {directory}")
@@ -86,7 +86,7 @@ def write_measurement_outputs(
     *,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Write the combined CP03/CP04 diagnostic and floor-plan artifacts."""
+    """Write the combined reconstruction, measurement, and floor-plan artifacts."""
     directory = Path(output_directory)
     if directory.exists() and not directory.is_dir():
         raise OutputError(f"Output path is not a directory: {directory}")
@@ -125,7 +125,7 @@ def write_run_outputs(
     *,
     overwrite: bool = False,
 ) -> dict[str, Path]:
-    """Stage and publish the complete seven-file reviewer artifact bundle."""
+    """Stage and publish the complete seven-file project artifact bundle."""
     directory = Path(output_directory)
     if directory.exists() and not directory.is_dir():
         raise OutputError(f"Output path is not a directory: {directory}")
@@ -327,7 +327,7 @@ def write_result_json(path: str | Path, result: RunResult) -> None:
 
 
 def write_report(path: str | Path, result: RunResult) -> None:
-    """Write a self-contained Markdown report for a human reviewer."""
+    """Write a self-contained Markdown report for a project run."""
     plan = result.room.floor_plan
     area_label = (
         "Floor area (provisional)"
@@ -443,7 +443,7 @@ The pipeline validates the capture, selects deterministic keyframes, filters dep
 
 Each wall plane is then given a finite extent and a deterministic identifier, and its material is profiled in bins along the wall. A void becomes a published opening only when solid wall flanks it on both sides, the floor in front of it was actually scanned, and it has a supported vertical extent. Voids touching the end of the scanned wall are treated as coverage boundaries, never as openings. Room adjacency is recorded only when an opening joins two independently supported floor regions.
 
-## Assignment capability coverage
+## Capability coverage
 
 | Capability | Status | Explanation |
 |---|---|---|
@@ -1125,7 +1125,7 @@ def _opening_colour(classification: str) -> tuple[int, int, int]:
 
 
 def _opening_panel_lines(summary: StructureSummary) -> list[str]:
-    """Summarize opening evidence for the side panel in reviewer language."""
+    """Summarize opening evidence for the side panel."""
     analysis = summary.openings
     if analysis is None:
         return ["Openings: not analysed"]

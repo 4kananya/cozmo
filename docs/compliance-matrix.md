@@ -1,6 +1,6 @@
-# Submission compliance matrix
+# Project capability matrix
 
-This matrix maps every material assignment requirement to the implementation and evidence present in this repository. `Implemented with limitations` is not an accuracy claim. `Not evaluated` is not a pass. No physical ground truth was supplied with the three captures, so the matrix does not convert internal fit statistics or synthetic tests into real-world accuracy.
+This matrix maps each material project capability to the implementation and evidence present in this repository. `Implemented with limitations` is not an accuracy claim. `Not evaluated` is not a pass. No physical ground truth was supplied with the three captures, so the matrix does not convert internal fit statistics or synthetic tests into real-world accuracy.
 
 | Requirement | File path | Review artifact | Status | Evidence and limitation |
 |---|---|---|---|---|
@@ -39,8 +39,6 @@ This matrix maps every material assignment requirement to the implementation and
 | Technical report | `docs/technical-report.md` | Technical report | Implemented | Covers architecture, tiers, drift, error budget, calibration, fix loop, and failure modes. |
 | Test evidence | `tests/` | 187-test suite | Implemented | Unit, contract, synthetic-geometry, failure-path, rendering, determinism, and audit regressions. |
 | Offline local runtime | `pyproject.toml` | CLI and artifacts | Implemented | NumPy, Pillow, and Pydantic only; no account, API key, GPU, database, or hosted service. |
-| Process evidence | Git history | Commit history | Implemented with limitations | Existing checkpoints are preserved; the final synchronization is one later commit because the source export lacked its own Git metadata. |
+## Scope interpretation
 
-## Submission interpretation
-
-The implemented product is an offline LiDAR pipeline with conservative evidence handling. It is not the complete three-tier, stitched-property, damage-to-repair system requested by the assignment. The missing rows above are submission gaps, not deferred claims of capability.
+The implemented product is an offline LiDAR pipeline with conservative evidence handling. It does not currently provide a complete three-tier, stitched-property, damage-to-repair workflow. The missing rows above are documented capability gaps, not deferred claims of capability.

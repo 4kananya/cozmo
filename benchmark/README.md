@@ -1,8 +1,8 @@
 # Ground-truth benchmark
 
-CP08 evaluates already-published batch results against measurements collected independently with a laser distance meter, tape, or survey process. It does not infer “truth” from the Cozmo Scan output.
+The benchmark evaluates already-published batch results against measurements collected independently with a laser distance meter, tape, or survey process. It does not infer “truth” from the Cozmo Scan output.
 
-Do not copy the example numbers below into a submission as if they describe the supplied scans. Measure the physical rooms, replace every fictional value, and record the method used. The repository intentionally contains no `ground-truth.json` for the three samples because no reference measurements were supplied with them.
+Do not treat the example numbers below as measurements of the supplied scans. Measure the physical rooms, replace every fictional value, and record the method used. The repository intentionally contains no `ground-truth.json` for the three samples because no reference measurements were supplied with them.
 
 ## Manifest format
 
@@ -73,9 +73,9 @@ The evaluator writes:
 
 - `evaluation.json`: strict machine-readable comparisons, counts, repeatability checks, warnings, and statuses;
 - `evaluation-report.md`: per-capture truth/prediction/error/gate table and interpretation rules;
-- `compliance-matrix.md`: the wider assignment requirements mapped to implemented, partial, missing, or unevaluated evidence.
+- `compliance-matrix.md`: project capabilities mapped to implemented, partial, missing, or unevaluated evidence.
 
-The assignment's benchmark protocol also calls for at least three physical rooms, the same rooms captured at photo/video/LiDAR tiers, repeated captures, staged damage from at least two classes, and laser/tape reference measurements. The compliance matrix reports each condition separately. Current supplied data meets neither the all-tier nor damage-evaluation requirements; the evaluator does not hide that limitation.
+The benchmark protocol calls for at least three physical rooms, the same rooms captured at photo/video/LiDAR tiers, repeated captures, staged damage from at least two classes, and laser/tape reference measurements. The capability matrix reports each condition separately. Current supplied data meets neither the all-tier nor damage-evaluation requirements; the evaluator does not hide that limitation.
 
 Existing known files require `--overwrite`. Unrelated files in the output directory are preserved. Exit code `0` means the evaluation artifacts were created successfully, even if their product status is `failed_gates` or `incomplete`. Invalid input, a mismatched bound hash, or unsafe/missing result artifacts return exit code `2`.
 
@@ -88,6 +88,6 @@ Existing known files require `--overwrite`. Unrelated files in the output direct
 - repeated ceiling prediction spread: at most `0.01 m`;
 - repeated named-wall spread: at most `0.01 m` **or** `0.5%` of independent truth.
 
-The evaluator calculates floor-area and principal-dimension errors but marks their gates `not_evaluated`, because the assignment does not state a direct threshold for those derived values. It likewise does not invent a LiDAR wall threshold or a confidence-interval coverage threshold.
+The evaluator calculates floor-area and principal-dimension errors but marks their gates `not_evaluated`, because the benchmark defines no direct threshold for those derived values. It likewise does not invent a LiDAR wall threshold or a confidence-interval coverage threshold.
 
-Current `1.4.0` results publish per-capture wall IDs and lengths, conservatively gated opening predictions, and precision intervals for floor area, perimeter, principal dimensions, and an available ceiling height. The evaluator counts matched, missed, and phantom openings and reports interval coverage descriptively wherever the manifest supplies a corresponding truth value. Wall IDs are deterministic only within a capture and configuration, opening widths still have no interval, and no assignment threshold is invented for LiDAR wall error or interval coverage.
+Current `1.4.0` results publish per-capture wall IDs and lengths, conservatively gated opening predictions, and precision intervals for floor area, perimeter, principal dimensions, and an available ceiling height. The evaluator counts matched, missed, and phantom openings and reports interval coverage descriptively wherever the manifest supplies a corresponding truth value. Wall IDs are deterministic only within a capture and configuration, opening widths still have no interval, and no unsupported threshold is invented for LiDAR wall error or interval coverage.

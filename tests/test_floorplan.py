@@ -1,4 +1,4 @@
-"""Tests for CP04 structural planes and floor-plan measurements."""
+"""Tests for structural planes and floor-plan measurements."""
 
 from __future__ import annotations
 

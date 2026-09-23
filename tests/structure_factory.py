@@ -1,4 +1,4 @@
-"""Deterministic synthetic structural geometry shared by CP04 tests."""
+"""Deterministic synthetic structural geometry shared by measurement tests."""
 
 from __future__ import annotations
 

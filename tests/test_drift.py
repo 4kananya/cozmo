@@ -1,4 +1,4 @@
-"""CP11 tests: bounded plane-anchored drift correction, gates, and ablation."""
+"""Tests for bounded plane-anchored drift correction, gates, and ablation."""
 
 from __future__ import annotations
 

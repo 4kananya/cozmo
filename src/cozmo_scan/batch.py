@@ -1,4 +1,4 @@
-"""Sequential multi-capture execution and reviewer-facing batch summaries."""
+"""Sequential multi-capture execution and readable batch summaries."""
 
 from __future__ import annotations
 

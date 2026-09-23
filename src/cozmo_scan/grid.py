@@ -2,7 +2,7 @@
 
 These helpers live in their own module so `floorplan` and `openings` can both use
 one implementation of cell quantisation, gap closing, and component labelling
-without importing each other. `floorplan` re-exports them, so the CP09 public
+without importing each other. `floorplan` re-exports them, so the public
 surface is unchanged.
 """
 

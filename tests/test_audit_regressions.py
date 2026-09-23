@@ -1,4 +1,4 @@
-"""Regression tests for the post-CP11 adversarial audit findings.
+"""Regression tests for adversarial audit findings.
 
 Each test names the audit finding it pins. Every test in this file was written
 before the corresponding fix and observed to fail, so the suite records the
@@ -53,7 +53,7 @@ class UnscannedWallIsNotAnOpeningTests(unittest.TestCase):
     A bin with no returns is *unknown*, not empty. Curtains, mirrors, dark or
     specular surfaces and grazing incidence all produce a full-height hole in
     the wall points while the floor and ceiling stay intact. Publishing that as
-    a doorway is a phantom, and the assignment's opening gate penalises a
+    a doorway is a phantom, and the opening evaluation gate penalises a
     phantom exactly as hard as a miss.
     """
 

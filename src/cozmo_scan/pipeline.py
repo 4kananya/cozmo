@@ -298,7 +298,7 @@ def build_quality_metrics(
 def build_capability_assessments(
     structure: StructureResult,
 ) -> tuple[CapabilityAssessment, ...]:
-    """State assignment coverage without inventing unsupported results."""
+    """State project capability coverage without inventing unsupported results."""
     openings = structure.summary.openings
     if openings is None or openings.status == "unavailable":
         reason = (

@@ -1,4 +1,4 @@
-"""Cross-platform, reviewer-oriented demonstration for the supplied samples."""
+"""Cross-platform reproducible demonstration for the supplied samples."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def find_required_samples(sample_directory: str | Path) -> tuple[Path, ...]:
-    """Return the three assignment samples in a stable, explicit order."""
+    """Return the three source samples in a stable, explicit order."""
     directory = Path(sample_directory)
     if not directory.is_dir():
         raise DemoError(f"Sample directory does not exist: {directory}")
@@ -113,7 +113,7 @@ def load_batch_summary(path: str | Path) -> dict[str, object]:
 
 
 def print_batch_summary(summary: dict[str, object], output_directory: Path) -> None:
-    """Print the compact evidence an assessor normally wants first."""
+    """Print the compact evidence needed to inspect a run."""
     print("\nDEMONSTRATION SUMMARY")
     print(f"Status: {str(summary['status']).upper()}")
     print(f"Captures: {summary['total_capture_count']}")

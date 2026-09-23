@@ -39,7 +39,7 @@ The competing hypothesis, that the contours were ragged from cell-scale sampling
 
 ## What the fix surfaced, and the honest cost
 
-The declaration listed this as a risk: "Perimeter ratios of 2.20 and 1.85 are high. A reviewer could reasonably argue the contour follows unscanned inlets rather than walls." The risk materialised, and it is larger than the ratios suggested.
+The declaration identified a risk that the high perimeter ratios could indicate contours following unscanned inlets rather than walls. The risk materialised, and it is larger than the ratios suggested.
 
 | Capture | Perimeter before | Perimeter after | Area after | Perimeter vs most compact outline of equal area |
 |---|---:|---:|---:|---:|
@@ -47,7 +47,7 @@ The declaration listed this as a risk: "Perimeter ratios of 2.20 and 1.85 are hi
 | `single_scan_floor_only.zip` | 33.28 m | **73.10 m** | 45.52 m² | **2.71** |
 | `single_scan_with_ceiling.zip` | 36.04 m | **61.15 m** | 41.12 m² | **2.38** |
 
-A 45.52 m² room bounded by 73.10 m of perimeter is not a shape a homeowner would recognise. Visual inspection of `floorplan.png` confirms it: the outline is legible, correctly drawn and correctly labelled, but it is a sprawling star-shaped extent with many spurs and inlets, not a room. The assignment's product surface is a plan a homeowner would recognise, and this outline does not meet that standard even though it passes the support gate.
+A 45.52 m² room bounded by 73.10 m of perimeter is not a shape a homeowner would recognise. Visual inspection of `floorplan.png` confirms it: the outline is legible, correctly drawn and correctly labelled, but it is a sprawling star-shaped extent with many spurs and inlets, not a room. The project aims to produce a plan a homeowner would recognise, and this outline does not meet that standard even though it passes the support gate.
 
 The support metric is not wrong. At 96.9% it is correctly reporting that the boundary hugs observed floor. What it cannot report, and never could, is whether that floor is **one room**. These two captures sweep parts of larger spaces, and there is no single room for either outline to be. That is why neither candidate was ever good: the convex hull overfilled unscanned space at 48.5% support, and the occupancy contour tracks coverage at 96.9% support. Both are honest answers to different questions, and neither is a room plan.
 
@@ -84,7 +84,7 @@ python -m cozmo_scan batch sample --output runs/fixloop-after --profile fast
 
 # before, preserved
 runs/r5-a/          post-audit, pre-fix-loop batch: support 94.9% / 57.4% / 48.5%
-runs/baseline-before/   pre-CP10 baseline, retained for reference
+runs/baseline-before/   recorded baseline, retained for comparison
 ```
 
 The readable diff is the two thresholds in the table under "What shipped" plus one added warning block in `floorplan.py`. Nothing else in the numerical path changed.
@@ -93,4 +93,4 @@ The readable diff is the two thresholds in the table under "What shipped" plus o
 
 Correct root cause: yes, established from the decision record and confirmed by a rejected competing hypothesis. Shipped fix: yes, two thresholds and one disclosure. Gate moved from fail to pass: yes, on both failing captures, 48.5% to 95.2% and 57.4% to 96.9%. Prediction accuracy: exact to 0.01 percentage points.
 
-The thing worth saying plainly is that passing the gate did not make the product better in every respect. It made the published boundary honest about what was observed, and it exposed that two of the three supplied captures are not single rooms, which the convex fallback had been concealing behind a plausible-looking but 48.5%-supported rectangle. A reviewer should treat the new areas as measured coverage extents, not as room areas, and neither number is validated because no ground truth was supplied.
+Passing the gate did not make the product better in every respect. It made the published boundary honest about what was observed, and it exposed that two of the three supplied captures are not single rooms, which the convex fallback had been concealing behind a plausible-looking but 48.5%-supported rectangle. The new areas are measured coverage extents, not validated room areas, because no ground truth was supplied.

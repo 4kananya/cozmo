@@ -1,4 +1,4 @@
-"""Tests for CP03 reconstruction artifact writers."""
+"""Tests for reconstruction artifact writers."""
 
 from __future__ import annotations
 
@@ -174,13 +174,13 @@ class ReconstructionOutputTests(unittest.TestCase):
                 execution.result,
             )
             report = paths["report"].read_text(encoding="utf-8")
-            self.assertIn("Assignment capability coverage", report)
+            self.assertIn("Capability coverage", report)
             self.assertIn("not_implemented", report)
             self.assertIn("not certified drift", report)
             with Image.open(paths["trajectory_preview"]) as image:
                 self.assertEqual(image.format, "PNG")
                 self.assertEqual(image.size, (1000, 700))
-            unrelated = destination / "reviewer-note.txt"
+            unrelated = destination / "unrelated-note.txt"
             unrelated.write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(OutputError, "--overwrite"):
                 write_run_outputs(execution, destination)

@@ -1,4 +1,4 @@
-"""Tests for the checkpoint-one command-line foundation."""
+"""Tests for the command-line foundation."""
 
 from __future__ import annotations
 

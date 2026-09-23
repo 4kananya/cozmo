@@ -1,4 +1,4 @@
-"""Tests for CP08 ground-truth evaluation and compliance reporting."""
+"""Tests for ground-truth evaluation and capability reporting."""
 
 from __future__ import annotations
 
@@ -207,7 +207,7 @@ class MetricEvaluationTests(unittest.TestCase):
         self.assertFalse(measurements["wall_length"].gate_applicable)
         self.assertEqual(evaluation.status, "incomplete")
 
-    def test_assignment_gate_boundaries_for_ceiling_photo_and_video_walls(self) -> None:
+    def test_evaluation_gate_boundaries_for_ceiling_photo_and_video_walls(self) -> None:
         ceiling_capture = GroundTruthCapture(
             capture_name="lidar.zip", room_id="r", tier=InputTier.LIDAR
         )
@@ -446,8 +446,8 @@ class InputOutputTests(unittest.TestCase):
             self.assertNotIn("do not publish numerical confidence intervals", report)
             self.assertIn("Drift accountability", matrix)
             self.assertIn("schema 1.4.0", matrix)
-            # The assignment specifies requirement -> file path -> artifact ->
-            # status, so the shape of the table is part of the contract.
+            # Requirement -> file path -> artifact -> status is the published
+            # table contract.
             self.assertIn(
                 "| Requirement | File path | Artifact | Status | Evidence / limitation |",
                 matrix,
@@ -456,7 +456,7 @@ class InputOutputTests(unittest.TestCase):
             # implement them.
             self.assertIn("| Damage regions with class and metric extent | not present |", matrix)
             self.assertIn("`src/cozmo_scan/drift.py`", matrix)
-            unrelated = output / "reviewer-note.txt"
+            unrelated = output / "unrelated-note.txt"
             unrelated.write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(EvaluationError, "--overwrite"):
                 write_evaluation_outputs(evaluation, output)

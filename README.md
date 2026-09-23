@@ -2,13 +2,13 @@
 
 Offline reconstruction and measured floor-plan generation for the supplied Stray Scanner/ARKit LiDAR captures.
 
-This repository contains the runnable pipeline, tests, capture instructions, benchmark tooling, fix-loop evidence, and reviewer-facing technical documentation needed for the submission.
+This repository contains the runnable pipeline, tests, capture instructions, benchmark tooling, fix-loop evidence, and technical documentation for the project.
 
 ## Current status
 
-All eleven checkpoints are complete. The seven baseline checkpoints deliver the LiDAR pipeline. CP08 adds a ground-truth benchmark and compliance evaluator. CP09 adds a component-aware concave floor outline with strict topology/support gates, keeping the prior convex method as a safety fallback. CP10 adds deterministic wall identity, conservative door/window/open-transition detection with measured widths, and room adjacency that is claimed only when two independently supported floor regions share an opening. CP11 adds a bounded plane-anchored drift correction with an on/off ablation and automatic roll-back.
+The project provides an offline LiDAR pipeline with validation, metric reconstruction, structural measurement, component-aware concave floor outlines, deterministic wall identity, conservative opening detection, evidence-gated room adjacency, independent ground-truth evaluation, precision intervals, and bounded plane-anchored drift-correction ablation. A convex outline remains available as a safety fallback when the supported concave contour fails its topology or evidence gates.
 
-The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
+The CLI can validate, reconstruct, measure, produce a complete single-capture result, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
 
 ## Architecture
 
@@ -49,12 +49,12 @@ grid.py             occupancy-cell primitives shared by floorplan.py and opening
 ## Requirements
 
 - Python 3.12 or newer
-- The supplied sample archives, kept outside Git history
+- The supplied sample archives, stored locally in the ignored `sample/` directory
 - A Windows, Linux, or macOS environment capable of installing the dependencies declared in `pyproject.toml`
 
 No GPU, cloud account, API key, database, or web server is required.
 
-Submission-facing documents are [the compliance matrix](docs/compliance-matrix.md), [capture route](docs/capture-route.md), [device matrix](docs/device-matrix.md), [technical report](docs/technical-report.md), and the [fix declaration](docs/fix-loop-declaration.md) with its [result](docs/fix-loop-result.md).
+Project documents include the [capability matrix](docs/compliance-matrix.md), [capture route](docs/capture-route.md), [device matrix](docs/device-matrix.md), [technical report](docs/technical-report.md), and the [fix declaration](docs/fix-loop-declaration.md) with its [result](docs/fix-loop-result.md).
 
 ## Development setup
 
@@ -76,7 +76,7 @@ python -m cozmo_scan --help
 
 ## Sample data
 
-Place the three assessment archives in the ignored `sample/` directory:
+Place the three source archives in the ignored `sample/` directory:
 
 ```text
 sample/
@@ -85,7 +85,7 @@ sample/
   single_scan_with_ceiling.zip
 ```
 
-The samples are deliberately not committed. Two exceed GitHub's normal 100 MiB per-file limit, and the assessor already supplies the data separately.
+The samples are deliberately not tracked. Two exceed GitHub's normal 100 MiB per-file limit, and the data is supplied separately.
 
 Local sample fingerprints recorded before repository cleanup:
 
@@ -97,7 +97,7 @@ Local sample fingerprints recorded before repository cleanup:
 
 These hashes identify the locally audited inputs; they are not download credentials or proof of ground truth.
 
-## Reviewer demonstration
+## Reproducible demonstration
 
 After installation and placing the samples as shown above, run the complete cross-platform demonstration from the repository root:
 
@@ -154,11 +154,11 @@ Profiles deliberately bound work:
 
 Frames are distributed across the capture by default. `--max-frames` may lower or override the profile limit for audited diagnostic runs. `--frame-selection contiguous-start` exists only to verify nearby-pose overlap. Existing known artifacts are protected unless `--overwrite` is supplied.
 
-CP03 uses NumPy, Pillow, and the recorded depth/pose data directly. It does not require Open3D, SciPy, Matplotlib, RGB decoding, a GPU, or network access.
+The reconstruction stage uses NumPy, Pillow, and the recorded depth/pose data directly. It does not require Open3D, SciPy, Matplotlib, RGB decoding, a GPU, or network access.
 
 ## Measure structural geometry
 
-Run reconstruction plus CP04 structural analysis:
+Run reconstruction plus structural analysis:
 
 ```powershell
 python -m cozmo_scan measure `
@@ -171,17 +171,17 @@ The measurement directory contains the three reconstruction artifacts above plus
 
 - `structure.json`: normalized floor/ceiling/wall planes, fit support and residuals, floor-local coordinates, polygon vertices, edge lengths, area, perimeter, principal dimensions, the opening analysis, effective thresholds, and warnings;
 - `floorplan.svg`: scalable measured floor-plan drawing;
-- `floorplan.png`: reviewer-friendly preview with edge dimensions, scale bar, wall-direction markers, openings, and quality evidence.
+- `floorplan.png`: annotated preview with edge dimensions, scale bar, wall-direction markers, openings, and quality evidence.
 
 In both plan drawings, teal dashes mark detected wall direction, red marks a `door_like` opening, and orange marks a `window_like` one. When the analysis is unavailable or published nothing, no opening is drawn and the side panel says so explicitly rather than leaving an empty plan to imply a room without openings.
 
-The structural stage finds the floor relative to the recorded camera trajectory, fits horizontal planes with fixed-seed RANSAC, detects vertical walls with X-Z line RANSAC, and projects floor evidence into a local metric frame. CP09 quantizes that evidence to an occupancy grid, closes only one-cell gaps, finds deterministic connected components, traces the largest outer contour, simplifies it, and verifies that it remains a simple polygon.
+The structural stage finds the floor relative to the recorded camera trajectory, fits horizontal planes with fixed-seed RANSAC, detects vertical walls with X-Z line RANSAC, and projects floor evidence into a local metric frame. The outline stage quantizes that evidence to an occupancy grid, closes only one-cell gaps, finds deterministic connected components, traces the largest outer contour, simplifies it, and verifies that it remains a simple polygon.
 
 The occupancy contour is accepted on geometric evidence only: it must retain at least 80% of occupied cells, have at least 55% direct occupied support, improve support over the occupancy convex hull by at least 8 percentage points, stay within the convex hull's area, and be a simple counter-clockwise polygon. A 200-vertex and 3.0x-perimeter bound remain as pathology guards that catch a degenerate trace; they were previously 36 and 1.5x and were rejecting well-supported geometry for a presentational reason, which the fix loop corrected. Weak, fragmented, self-intersecting or unsupported contours use the previous convex hull and record the exact fallback reason.
 
 A concave outline whose perimeter exceeds twice the most compact outline of equal area carries a warning giving both numbers, because occupied support says the boundary hugs observed floor and says nothing about whether that floor is one room. The legacy JSON field `convex_fill_ratio` is retained for compatibility; `boundary_support_ratio` is its clearer serialized alias for either outline method.
 
-The audited `single_room.zip` fast run still finds the same floor, wall planes, and missing-ceiling outcome. Its CP09 contour retains 95.7% of occupied cells, has 94.9% direct support, and measures approximately 8.07 x 4.55 m, 16.40 m², with 27 simplified vertices. This is substantially better supported than the old 34.73 m² convex hull, but it is still an internal occupancy estimate, not proof of absolute accuracy without independent room measurements.
+The audited `single_room.zip` fast run finds the floor, wall planes, and a missing-ceiling outcome. Its supported contour retains 95.7% of occupied cells, has 94.9% direct support, and measures approximately 8.07 x 4.55 m, 16.40 m², with 27 simplified vertices. This is substantially better supported than the 34.73 m² convex hull, but it is still an internal occupancy estimate, not proof of absolute accuracy without independent room measurements.
 
 ## Generate the complete result bundle
 
@@ -194,14 +194,14 @@ python -m cozmo_scan run `
   --profile fast
 ```
 
-It writes exactly seven reviewer-facing artifacts:
+It writes exactly seven project artifacts:
 
-- `result.json`: versioned result contract containing input SHA-256, inventory, effective parameters, reconstruction statistics, structural measurements, quality evidence, runtime versions, warnings, assignment capability statuses, and artifact manifest;
+- `result.json`: versioned result contract containing input SHA-256, inventory, effective parameters, reconstruction statistics, structural measurements, quality evidence, runtime versions, warnings, capability statuses, and artifact manifest;
 - `reconstruction.ply`: metric XYZ point cloud;
 - `topdown.png`: point-density and camera-path overview;
 - `trajectory.png`: dedicated path rendering whose start-to-end distance is explicitly labelled as a closure proxy, not certified drift;
 - `floorplan.svg` and `floorplan.png`: vector and raster measured-plan views;
-- `report.md`: self-contained human-readable result, evidence, method, limitations, artifact guide, and assignment coverage.
+- `report.md`: self-contained human-readable result, evidence, method, limitations, artifact guide, and capability coverage.
 
 The final output is staged before publication. Existing known artifacts require `--overwrite`, and unrelated files in the destination are preserved. ZIP provenance is the SHA-256 of the exact archive bytes. Directory provenance uses a deterministic hash over sorted normalized member names and contents. Local absolute paths are not stored in the final result.
 
@@ -209,7 +209,7 @@ The final output is staged before publication. Existing known artifacts require 
 
 The final schema explicitly marks unsupported features such as photo-only reconstruction, damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing as `not_implemented`; ground-truth accuracy and multi-room stitching are `not_evaluated`. Wall identity, opening detection, and room adjacency report their own status per capture: `supported_with_limitations` when the analysis ran, `not_evaluated` when the capture could not support it. Missing measurements remain `null`.
 
-CP09 published schema `1.1.0`, CP10 added the opening analysis in `1.2.0`, and the post-CP11 audit revised that contract in `1.3.0`. The current result, structure, and batch schema is `1.4.0`, which adds published measurement intervals. Readers remain compatible with `1.0.0` through `1.3.0`; older artifacts load with missing openings as `null` and missing intervals as an empty collection rather than fabricated evidence.
+The current result, structure, and batch schema is `1.4.0`, including published measurement intervals. Readers remain compatible with `1.0.0` through `1.3.0`; older artifacts load with missing openings as `null` and missing intervals as an empty collection rather than fabricated evidence.
 
 ## Openings and adjacency
 
@@ -224,9 +224,9 @@ A void is published only when all of the following hold:
 - the bins share a common vertical void, so unrelated per-bin sampling gaps do not accumulate into a false opening;
 - the width falls between the configured minimum and maximum, re-checked after edge refinement.
 
-Widths are refined below the profile bin size, because a 5 cm bin cannot meet the assignment's 2 cm opening gate. Each edge is bracketed within a local flank window and corrected inward by half the local sampling interval, so the estimator is two-sided rather than only ever widening the opening. On synthetic rooms a 0.90 m door measures 0.9043 m and a 1.20 m window measures 1.2053 m, both inside 2 cm, and the window's 0.90 m sill and 2.00 m head are recovered.
+Widths are refined below the profile bin size, because a 5 cm bin cannot meet the 2 cm opening-width gate. Each edge is bracketed within a local flank window and corrected inward by half the local sampling interval, so the estimator is two-sided rather than only ever widening the opening. On synthetic rooms a 0.90 m door measures 0.9043 m and a 1.20 m window measures 1.2053 m, both inside 2 cm, and the window's 0.90 m sill and 2.00 m head are recovered.
 
-Every wall also reports whether its observed height was bounded by scan coverage rather than by a detected ceiling. Height-derived judgements are measured against the wall height, so that flag tells a reviewer when such a judgement was made against partial coverage. On the supplied captures all walls are coverage-limited for the two scans with no detected ceiling, and none are for the third.
+Every wall also reports whether its observed height was bounded by scan coverage rather than by a detected ceiling. Height-derived judgements are measured against the wall height, so that flag identifies when such a judgement was made against partial coverage. On the supplied captures all walls are coverage-limited for the two scans with no detected ceiling, and none are for the third.
 
 Classification is deliberately hedged as `door_like`, `window_like`, or `unclassified_gap`. Confidence is graded on supporting evidence rather than on classification, so a strongly observed void of unclear purpose is not penalised and a weakly observed doorway is not flattered. Rejected candidates are kept with their reasons, so an empty opening list reads as "no candidate passed the gates" rather than "this room has no doors".
 
@@ -274,7 +274,7 @@ python -m cozmo_scan batch `
 
 The output root contains `batch.json`, `batch-report.md`, and one named directory per capture containing the same seven artifacts produced by `run`. One effective configuration is shared by every capture. Known output collisions are rejected before processing starts unless `--overwrite` is supplied; unrelated files are preserved. An expected failure in one capture is recorded and later captures still run. The command returns `0` only when every capture succeeds and `2` for a partial or fully failed batch.
 
-The audited frozen-profile run completed all three supplied archives. CP09 accepts the supported contour only for `single_room`; the other two candidates remain too complex and therefore use the unchanged convex safety fallback:
+The audited frozen-profile run completed all three supplied archives. The contour selector accepts the supported outline only for `single_room`; the other two candidates remain too complex and therefore use the convex safety fallback:
 
 | Capture | Points | Outline | Area | Dimensions | Perimeter | Walls | Openings | Ceiling | Occupied support |
 |---|---:|---|---:|---:|---:|---:|---:|---:|---:|
@@ -297,7 +297,7 @@ python -m cozmo_scan evaluate `
   --output "runs\evaluation"
 ```
 
-The command writes `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md`. It reports absolute/percentage error, the applicable assignment gate, missing predictions, phantom openings, repeatability, and interval-calibration availability. Creating the report successfully returns exit code `0`; inspect the report's `passed`, `failed_gates`, or `incomplete` product status to determine the benchmark outcome.
+The command writes `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md`. It reports absolute/percentage error, the applicable evaluation gate, missing predictions, phantom openings, repeatability, and interval-calibration availability. Creating the report successfully returns exit code `0`; inspect the report's `passed`, `failed_gates`, or `incomplete` product status to determine the benchmark outcome.
 
 No real ground-truth values were supplied with the three archives, so the repository does not invent them. The strict manifest format, a clearly fictional example, measurement rules, and exact encoded thresholds are documented in [benchmark/README.md](benchmark/README.md).
 
@@ -313,17 +313,17 @@ They are labelled `precision` and never `accuracy`, and the distinction matters:
 | `single_scan_floor_only.zip` | 45.52, [43.98, 45.50] | no ceiling |
 | `single_scan_with_ceiling.zip` | 41.12, [38.73, 84.45] | 2.4012, [2.4011, 2.4025] |
 
-The ceiling height is precise to under a millimetre, well inside the assignment's 1.5 cm gate, which is a statement about estimator stability and not about whether 2.40 m is correct. The wide area interval on the third capture is not noise: 8% of resamples selected the convex fallback instead of the concave contour, so the interval is bimodal across two estimators and the result says so in a warning. Opening widths have no interval yet and report that explicitly.
+The ceiling height is precise to under a millimetre, well inside the 1.5 cm evaluation gate, which is a statement about estimator stability and not about whether 2.40 m is correct. The wide area interval on the third capture is not noise: 8% of resamples selected the convex fallback instead of the concave contour, so the interval is bimodal across two estimators and the result says so in a warning. Opening widths have no interval yet and report that explicitly.
 
 Intervals cost runtime: a three-capture batch goes from about 8 s to about 32 s at the default 64 resamples. The `test` profile uses 8.
 
 ## Evaluating against independent ground truth
 
-Since CP10 the evaluator receives real named-wall and opening predictions, so the opening gate now scores. Because opening identifiers are deterministic per capture and configuration rather than a cross-capture physical identity, a manifest must adopt the published identifiers before a width can match; an identifier the results do not predict is counted as a miss, and an identifier the truth does not contain is counted as a phantom. Interval coverage is now computed wherever the manifest supplies a truth value for a measurement that carries an interval, and is reported descriptively because the assignment sets no coverage threshold.
+The evaluator receives named-wall and opening predictions, so the opening gate can be scored when matching truth is supplied. Because opening identifiers are deterministic per capture and configuration rather than a cross-capture physical identity, a manifest must adopt the published identifiers before a width can match; an identifier the results do not predict is counted as a miss, and an identifier the truth does not contain is counted as a phantom. Interval coverage is computed wherever the manifest supplies a truth value for a measurement that carries an interval, and is reported descriptively because no coverage threshold is defined.
 
 ## Run tests
 
-The test suite creates tiny temporary captures; it does not require the large assessment ZIPs:
+The test suite creates tiny temporary captures; it does not require the large source ZIPs:
 
 ```text
 python -m unittest discover -s tests -v
@@ -331,13 +331,13 @@ python -m unittest discover -s tests -v
 
 The suite contains 187 tests covering validation, reconstruction, structural geometry, pipeline contracts, provenance, rendering, batch discovery, failure isolation, demo flow, determinism, staged-output safety, overwrite safety, benchmark contracts, gates, repeatability, and the CLI.
 
-`tests/test_audit_regressions.py` pins the findings of an adversarial audit; every assertion in it was observed to fail before the corresponding fix. CP10 and CP11 add synthetic scenes with known answers rather than only contract checks: a room with a measured door and window, the same room with solid walls, a sparsely sampled room, a void flush against the scanned wall extent, a void with unscanned floor in front of it, two rooms sharing a doorway, and the same two rooms with a solid shared wall. The drift tests verify that smoothing preserves a linear trend, that offsets oppose the residual and stay bounded, that every acceptance gate rejects for the right reason, and that a recorded-pose reconstruction is reproducible.
+`tests/test_audit_regressions.py` covers adversarial regression cases. The opening and drift suites use synthetic scenes with known answers rather than only contract checks: a room with a measured door and window, the same room with solid walls, a sparsely sampled room, a void flush against the scanned wall extent, a void with unscanned floor in front of it, two rooms sharing a doorway, and the same two rooms with a solid shared wall. The drift tests verify that smoothing preserves a linear trend, that offsets oppose the residual and stay bounded, that every acceptance gate rejects for the right reason, and that a recorded-pose reconstruction is reproducible.
 
 ## Scope boundary
 
 The deadline baseline targets the three supplied LiDAR captures. It does not claim validated photo-only or video-only reconstruction, damage classification, concealed-condition prediction, automated repair scope, calibrated interval coverage, or multi-room stitching. Published intervals are precision only, in the sense of the [Measurement intervals](#measurement-intervals) section, and opening width still carries none. Unsupported capabilities are represented explicitly in the result contract and the compliance matrix instead of returning fabricated values.
 
-Known limitations that remain true after CP10 and CP11:
+Known limitations:
 
 - No survey, tape, or laser ground truth was supplied, so absolute accuracy is not established for any measurement, opening width, or ablation arm.
 - Wall and opening identifiers are stable per capture and configuration, not across captures, so repeated-capture wall matching is not available.
