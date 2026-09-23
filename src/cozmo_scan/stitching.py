@@ -65,6 +65,116 @@ def stitch_result_files(
     }
 
 
+def auto_stitch_result_files(
+    source_result: str | Path,
+    target_result: str | Path,
+) -> dict[str, Any]:
+    """Align two rooms by scoring deterministic wall-pair transform hypotheses."""
+    source = _load_json(Path(source_result))
+    target = _load_json(Path(target_result))
+    source_walls = _walls(source)
+    target_walls = _walls(target)
+    best: tuple[tuple[int, float, float], NDArray[np.float64], NDArray[np.float64], list[dict[str, Any]]] | None = None
+    for source_wall in source_walls:
+        source_start = np.asarray(source_wall["start_xy_m"], dtype=np.float64)
+        source_end = np.asarray(source_wall["end_xy_m"], dtype=np.float64)
+        source_direction = source_end - source_start
+        source_angle = math.atan2(source_direction[1], source_direction[0])
+        source_midpoint = (source_start + source_end) / 2.0
+        for target_wall in target_walls:
+            target_start = np.asarray(target_wall["start_xy_m"], dtype=np.float64)
+            target_end = np.asarray(target_wall["end_xy_m"], dtype=np.float64)
+            target_direction = target_end - target_start
+            target_midpoint = (target_start + target_end) / 2.0
+            base_target_angle = math.atan2(target_direction[1], target_direction[0])
+            for reversal in (0.0, math.pi):
+                angle = base_target_angle + reversal - source_angle
+                rotation = np.asarray(
+                    [[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]],
+                    dtype=np.float64,
+                )
+                translation = target_midpoint - source_midpoint @ rotation.T
+                transformed = tuple(
+                    _transform_wall(wall, rotation, translation) for wall in source_walls
+                )
+                matches = match_walls(
+                    transformed,
+                    target_walls,
+                    maximum_angle_degrees=12.0,
+                    maximum_midpoint_distance_m=0.75,
+                    maximum_relative_length_error=0.30,
+                )
+                if not matches:
+                    continue
+                matched_length = sum(
+                    min(
+                        float(next(w["length_m"] for w in transformed if w["wall_id"] == match["source_wall_id"])),
+                        float(next(w["length_m"] for w in target_walls if w["wall_id"] == match["target_wall_id"])),
+                    )
+                    for match in matches
+                )
+                mean_score = float(np.mean([match["score"] for match in matches]))
+                rank = (len(matches), matched_length, -mean_score)
+                if best is None or rank > best[0]:
+                    best = (rank, rotation, translation, matches)
+    if best is None:
+        raise StitchingError("no geometrically consistent automatic wall alignment was found")
+    _, rotation, translation, matches = best
+    # Once a hypothesis has established correspondences, refine it using all
+    # matched wall midpoints rather than the single pair that generated it.
+    if len(matches) >= 2:
+        source_midpoints = np.asarray(
+            [
+                _midpoint(next(w for w in source_walls if w["wall_id"] == match["source_wall_id"]))
+                for match in matches
+            ]
+        )
+        target_midpoints = np.asarray(
+            [
+                _midpoint(next(w for w in target_walls if w["wall_id"] == match["target_wall_id"]))
+                for match in matches
+            ]
+        )
+        if np.linalg.matrix_rank(source_midpoints - source_midpoints.mean(axis=0)) >= 1:
+            rotation, translation, _ = estimate_rigid_transform(source_midpoints, target_midpoints)
+    transformed_walls = tuple(_transform_wall(wall, rotation, translation) for wall in source_walls)
+    matches = match_walls(
+        transformed_walls,
+        target_walls,
+        maximum_angle_degrees=12.0,
+        maximum_midpoint_distance_m=0.75,
+        maximum_relative_length_error=0.30,
+    )
+    residuals = np.asarray([match["midpoint_distance_m"] for match in matches], dtype=np.float64)
+    orientation_diversity = _orientation_diversity(matches, target_walls)
+    confidence = "medium" if len(matches) >= 3 and orientation_diversity else "low"
+    return {
+        "schema_version": "1.0.0",
+        "status": "prototype",
+        "method": "automatic_wall_hypothesis_and_consensus",
+        "confidence": confidence,
+        "source_result": Path(source_result).name,
+        "target_result": Path(target_result).name,
+        "transform_source_to_target": {
+            "rotation_radians": float(math.atan2(rotation[1, 0], rotation[0, 0])),
+            "rotation_matrix": rotation.tolist(),
+            "translation_m": translation.tolist(),
+            "wall_midpoint_rmse_m": (
+                float(np.sqrt(np.mean(residuals * residuals))) if len(residuals) else None
+            ),
+        },
+        "wall_matches": matches,
+        "transformed_source_walls": transformed_walls,
+        "source_floor_plan_xy_m": _transform_floor_plan(source, rotation, translation),
+        "target_floor_plan_xy_m": _floor_vertices(target),
+        "limitations": [
+            "Repeated rectangular layouts can produce an ambiguous transform.",
+            "Low confidence means fewer than three matches or no non-parallel wall evidence.",
+            "No point-cloud ICP, loop closure or non-rigid correction is performed.",
+        ],
+    }
+
+
 def estimate_rigid_transform(
     source_xy: NDArray[np.float64], target_xy: NDArray[np.float64]
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -239,3 +349,16 @@ def _undirected_angle_degrees(source: dict[str, Any], target: dict[str, Any]) ->
         / (float(np.linalg.norm(source_direction)) * float(np.linalg.norm(target_direction)))
     )
     return math.degrees(math.acos(float(np.clip(cosine, -1.0, 1.0))))
+
+
+def _orientation_diversity(
+    matches: list[dict[str, Any]], target_walls: tuple[dict[str, Any], ...]
+) -> bool:
+    directions: list[NDArray[np.float64]] = []
+    for match in matches:
+        wall = next(w for w in target_walls if w["wall_id"] == match["target_wall_id"])
+        direction = np.asarray(wall["end_xy_m"], dtype=np.float64) - np.asarray(
+            wall["start_xy_m"], dtype=np.float64
+        )
+        directions.append(direction / np.linalg.norm(direction))
+    return any(abs(float(first @ second)) < math.cos(math.radians(25.0)) for index, first in enumerate(directions) for second in directions[index + 1 :])

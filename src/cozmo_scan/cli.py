@@ -74,11 +74,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stitch_parser.add_argument("source_result", type=Path)
     stitch_parser.add_argument("target_result", type=Path)
-    stitch_parser.add_argument(
+    stitch_mode = stitch_parser.add_mutually_exclusive_group(required=True)
+    stitch_mode.add_argument(
         "--anchors",
         type=Path,
-        required=True,
         help='JSON object with matching "source" and "target" [x,y] point lists',
+    )
+    stitch_mode.add_argument(
+        "--auto",
+        action="store_true",
+        help="generate and score automatic wall-alignment hypotheses",
     )
     stitch_parser.add_argument("--output", type=Path, required=True)
     stitch_parser.add_argument("--overwrite", action="store_true")
@@ -94,8 +99,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     damage_parser.add_argument("input", type=Path, help="image or image directory")
     damage_parser.add_argument("--output", type=Path, required=True, help="output JSON file")
+    damage_parser.add_argument(
+        "--metres-per-pixel",
+        type=float,
+        help="validated surface scale for candidate image-plane quantities",
+    )
     damage_parser.add_argument("--overwrite", action="store_true")
     damage_parser.set_defaults(handler=handle_damage_screen)
+
+    scope_parser = subparsers.add_parser(
+        "scope-repair",
+        help="build reviewer-approved draft scope lines from scaled screening evidence",
+    )
+    scope_parser.add_argument("screen", type=Path, help="damage-screen JSON")
+    scope_parser.add_argument("--decisions", type=Path, required=True)
+    scope_parser.add_argument("--output", type=Path, required=True)
+    scope_parser.add_argument("--overwrite", action="store_true")
+    scope_parser.set_defaults(handler=handle_repair_scope)
+
+    media_reconstruction_parser = subparsers.add_parser(
+        "triangulate-media",
+        help="sparse metric reconstruction from calibrated known-pose observations",
+        description=(
+            "Triangulate named photo/video observations using supplied camera intrinsics "
+            "and metric world-from-camera poses, with reprojection-error rejection."
+        ),
+    )
+    media_reconstruction_parser.add_argument("manifest", type=Path)
+    media_reconstruction_parser.add_argument("--output", type=Path, required=True)
+    media_reconstruction_parser.add_argument("--overwrite", action="store_true")
+    media_reconstruction_parser.set_defaults(handler=handle_media_triangulation)
 
     validate_parser = subparsers.add_parser(
         "validate",
@@ -412,13 +445,22 @@ def handle_ingest(arguments: argparse.Namespace) -> int:
 
 def handle_stitch(arguments: argparse.Namespace) -> int:
     """Run the manually anchored room-stitching prototype."""
-    from cozmo_scan.stitching import StitchingError, stitch_result_files, write_stitching_result
+    from cozmo_scan.stitching import (
+        StitchingError,
+        auto_stitch_result_files,
+        stitch_result_files,
+        write_stitching_result,
+    )
 
     try:
-        result = stitch_result_files(
-            arguments.source_result,
-            arguments.target_result,
-            arguments.anchors,
+        result = (
+            auto_stitch_result_files(arguments.source_result, arguments.target_result)
+            if arguments.auto
+            else stitch_result_files(
+                arguments.source_result,
+                arguments.target_result,
+                arguments.anchors,
+            )
         )
         destination = write_stitching_result(
             result, arguments.output, overwrite=arguments.overwrite
@@ -428,7 +470,9 @@ def handle_stitch(arguments: argparse.Namespace) -> int:
         return 2
     transform = result["transform_source_to_target"]
     print("Status: PROTOTYPE")
-    print(f"Anchor RMSE: {transform['anchor_rmse_m']:.4f} m")
+    residual = transform.get("anchor_rmse_m", transform.get("wall_midpoint_rmse_m"))
+    if residual is not None:
+        print(f"Alignment RMSE: {residual:.4f} m")
     print(f"Candidate wall matches: {len(result['wall_matches'])}")
     print(f"Output: {destination}")
     return 0
@@ -439,7 +483,9 @@ def handle_damage_screen(arguments: argparse.Namespace) -> int:
     from cozmo_scan.damage import DamageScreenError, screen_damage_candidates, write_damage_screen
 
     try:
-        result = screen_damage_candidates(arguments.input)
+        result = screen_damage_candidates(
+            arguments.input, metres_per_pixel=arguments.metres_per_pixel
+        )
         destination = write_damage_screen(
             result, arguments.output, overwrite=arguments.overwrite
         )
@@ -449,8 +495,64 @@ def handle_damage_screen(arguments: argparse.Namespace) -> int:
     print("Status: EXPERIMENTAL SCREENING")
     print(f"Images: {result['image_count']}")
     print(f"Review candidates: {result['candidate_count']}")
-    print("Repair quantities: NOT ESTIMATED")
+    print(
+        "Repair quantities: "
+        + (
+            "CANDIDATE GEOMETRY ONLY"
+            if result["inspection_scope"]["repair_quantity_status"]
+            == "candidate_geometry_only"
+            else "NOT ESTIMATED"
+        )
+    )
     print(f"Output: {destination}")
+    return 0
+
+
+def handle_repair_scope(arguments: argparse.Namespace) -> int:
+    """Build draft quantities only from explicit reviewer decisions."""
+    from cozmo_scan.damage import (
+        DamageScreenError,
+        build_repair_scope,
+        write_damage_screen,
+    )
+
+    try:
+        result = build_repair_scope(arguments.screen, arguments.decisions)
+        destination = write_damage_screen(
+            result, arguments.output, overwrite=arguments.overwrite
+        )
+    except DamageScreenError as exc:
+        print(f"Repair scope failed: {exc}", file=sys.stderr)
+        return 2
+    print("Status: DRAFT REQUIRES ENGINEER APPROVAL")
+    print(f"Reviewer: {result['reviewer']}")
+    print(f"Line items: {result['line_item_count']}")
+    print(f"Output: {destination}")
+    return 0
+
+
+def handle_media_triangulation(arguments: argparse.Namespace) -> int:
+    """Run known-pose sparse photo/video triangulation."""
+    from cozmo_scan.photogrammetry import (
+        PhotogrammetryError,
+        reconstruct_known_pose_manifest,
+        write_media_reconstruction,
+    )
+
+    try:
+        result, points = reconstruct_known_pose_manifest(arguments.manifest)
+        paths = write_media_reconstruction(
+            result, points, arguments.output, overwrite=arguments.overwrite
+        )
+    except PhotogrammetryError as exc:
+        print(f"Media triangulation failed: {exc}", file=sys.stderr)
+        return 2
+    print("Status: PROTOTYPE")
+    print(f"Views: {result['view_count']}")
+    print(f"Reconstructed points: {result['reconstructed_point_count']}")
+    print(f"Rejected tracks: {result['rejected_track_count']}")
+    for name, path in paths.items():
+        print(f"{name}: {path}")
     return 0
 
 

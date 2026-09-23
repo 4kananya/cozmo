@@ -22,7 +22,7 @@ Use this checklist to record one room for Cozmo Scan with the stock iOS app Stra
 6. At each window, hold square to it for five seconds and tilt slowly from below the sill to above the head. Capture the surrounding wall and frame, not only the glass.
 7. Return to the start point, face the original direction, remain still for three seconds, and stop. Aim for three to four minutes total.
 
-Record a separate file for every room. A prototype can align completed room results from manually supplied corresponding doorway or control points, but automatic multi-room stitching is not implemented; walking through several rooms does not by itself create a verified whole-property plan.
+Record a separate file for every room. A prototype can align completed results from supplied control points or automatic wall-consensus hypotheses, but it has no property-wide pose graph or loop closure; walking through several rooms does not by itself create a verified whole-property plan.
 
 ## Difficult surfaces
 
@@ -55,4 +55,4 @@ python -m cozmo_scan run sample\defense_room.zip `
 
 Validation exit code `0` means the capture is structurally usable. Exit code `2` identifies a capture or layout error. Read `runs\defense-room\report.md` first, then inspect the PNG/SVG plan and `result.json`.
 
-The LiDAR output is a measured coverage extent with evidence and warnings. Separate photo/video inputs publish validated manifests through `cozmo-scan ingest`; the LiDAR tier publishes metric reconstruction. Multi-room stitching, damage detection, concealed-condition flags, repair scope, calibrated accuracy, and guaranteed opening detection are outside the current scope. An empty opening list means no candidate passed the evidence gates; it does not prove that the room has no openings.
+The LiDAR output is a measured coverage extent with evidence and warnings. Separate photo/video inputs publish validated manifests through `cozmo-scan ingest`; calibrated known-pose observations can additionally produce sparse media geometry. Wall-consensus stitching, visual-anomaly screening and reviewer-driven scope quantities are prototypes. Property-wide loop closure, structural diagnosis, concealed-condition flags, autonomous repair selection, calibrated accuracy, and guaranteed opening detection remain outside the validated scope. An empty opening list means no candidate passed the evidence gates; it does not prove that the room has no openings.

@@ -34,6 +34,39 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(arguments.tier, "photo")
         self.assertEqual(arguments.output, Path("media-run"))
 
+    def test_parser_exposes_media_prototype_commands(self) -> None:
+        triangulate = build_parser().parse_args(
+            ["triangulate-media", "observations.json", "--output", "sparse"]
+        )
+        automatic_stitch = build_parser().parse_args(
+            ["stitch", "a.json", "b.json", "--auto", "--output", "stitch.json"]
+        )
+        damage = build_parser().parse_args(
+            [
+                "screen-damage",
+                "frames",
+                "--metres-per-pixel",
+                "0.001",
+                "--output",
+                "screen.json",
+            ]
+        )
+        scope = build_parser().parse_args(
+            [
+                "scope-repair",
+                "screen.json",
+                "--decisions",
+                "decisions.json",
+                "--output",
+                "scope.json",
+            ]
+        )
+
+        self.assertEqual(triangulate.command, "triangulate-media")
+        self.assertTrue(automatic_stitch.auto)
+        self.assertEqual(damage.metres_per_pixel, 0.001)
+        self.assertEqual(scope.decisions, Path("decisions.json"))
+
     def test_parser_exposes_reconstruct_command(self) -> None:
         arguments = build_parser().parse_args(
             [

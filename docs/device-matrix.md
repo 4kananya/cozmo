@@ -10,7 +10,7 @@ Which input tier runs on which hardware, and what each tier honestly delivers. A
 | Video | Implemented with limitations | Any camera producing MP4, MOV, or M4V | Laptop with Python 3.12, FFmpeg and FFprobe | Stream manifest; evenly sampled, hashed and quality-screened frames; contact sheet | Capture-quality evidence only; metric geometry is the LiDAR product |
 | Photo | Implemented with limitations | Any camera producing JPEG, PNG, TIFF, BMP, or WebP | Any Windows, Linux, or macOS laptop with Python 3.12 | Manifest, hashes, resolution/exposure/sharpness/clipping checks, duplicate detection and contact sheet | Capture-quality evidence only; metric geometry is the LiDAR product |
 
-An iPhone without LiDAR can feed the media-ingestion tiers, but those tiers do not produce metric geometry or a floor plan.
+An iPhone without LiDAR can feed the media-ingestion tiers. Sparse metric media geometry is possible only when calibrated observations and metre-scale camera poses are also supplied; ordinary uncalibrated photos or video do not produce a metric floor plan.
 
 ## Capture device requirements
 
@@ -47,10 +47,11 @@ Two coverage facts are worth reading alongside any measurement:
 ## Current scope boundaries
 
 - metric reconstruction and measured plans use LiDAR input;
-- manually anchored rigid stitching is a prototype; there is no automatic property-wide registration or loop closure;
-- visual damage screening is experimental and not validated as structural diagnosis;
+- manual-anchor and automatic wall-hypothesis stitching are prototypes; there is no property-wide pose graph or loop closure;
+- known-pose media triangulation is sparse and requires supplied correspondences, intrinsics and metre-scale poses;
+- multi-scale visual damage screening is experimental and not validated as structural diagnosis;
 - no concealed condition flags;
-- no repair quantity generation; the prototype produces an inspection scope only;
+- draft scope quantities require a validated image scale and explicit reviewer confirmation/action; autonomous repair decisions are not generated;
 - no calibrated interval coverage. Bootstrap *precision* intervals include opening widths only when enough resamples reproduce the same opening;
 - no established accuracy figure.
 

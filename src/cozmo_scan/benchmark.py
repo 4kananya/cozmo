@@ -850,6 +850,13 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
             "`run` and `batch` process supplied Stray Scanner depth, confidence, intrinsics and recorded poses.",
         ),
         (
+            "Known-pose media reconstruction",
+            "`src/cozmo_scan/photogrammetry.py`",
+            "`media-reconstruction.json`, `media-reconstruction.ply`",
+            "Prototype",
+            "Sparse multi-view DLT uses calibrated observations and metre-scale poses with positive-depth and reprojection gates. Automatic matching and dense stereo are absent.",
+        ),
+        (
             "Per-room floor / wall / ceiling plan",
             "`src/cozmo_scan/floorplan.py`",
             "`result.json`, `floorplan.svg`, `floorplan.png`",
@@ -914,14 +921,14 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
             "`src/cozmo_scan/stitching.py`",
             "prototype stitching JSON",
             "Prototype",
-            "Manual anchors initialize rigid 2D alignment and wall matching. Automatic anchors, loop closure and physical validation are absent.",
+            "Manual anchors or automatic wall hypotheses initialize rigid 2D alignment; matched-wall consensus refines it. Repeated layouts, loop closure and physical validation remain unresolved.",
         ),
         (
             "Damage regions with class and metric extent",
             "`src/cozmo_scan/damage.py`",
             "experimental screening JSON",
             "Prototype; not evaluated",
-            "Flags crack-like local-contrast candidates for human review. No structural diagnosis, repair quantity, or labelled-data validation is claimed.",
+            "Multi-scale local-contrast segmentation flags connected crack-like candidates for review. Optional scale produces image-plane geometry, not structural diagnosis; labelled-data validation is absent.",
         ),
         (
             "Concealed-damage flags with the rule that fired",
@@ -932,10 +939,10 @@ def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
         ),
         (
             "Scope line items keyed to surfaces",
-            "not present",
-            "none",
-            "Not implemented",
-            "Depends on validated damage evidence that does not exist.",
+            "`src/cozmo_scan/damage.py`",
+            "draft scope JSON",
+            "Prototype; reviewer required",
+            "Scaled candidates plus explicit reviewer confirmations and actions create draft quantities and optional costs. Engineering approval remains mandatory.",
         ),
         (
             "Drift accountability and on/off ablation",

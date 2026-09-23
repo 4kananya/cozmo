@@ -1,6 +1,6 @@
 # Cozmo Scan technical report
 
-Cozmo Scan is a local Python 3.12 pipeline that validates photo/video media and turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and inspectable artifacts. It runs successfully on the three supplied LiDAR captures and is deliberately conservative when evidence is missing. Photo/video evidence includes deterministic quality checks and sampled video frames. Manually anchored room alignment and visual-anomaly screening are prototypes; automatic global stitching, structural diagnosis, repair quantities, and physical benchmark evidence remain outside the validated scope.
+Cozmo Scan is a local Python 3.12 pipeline that validates photo/video media and turns Stray Scanner LiDAR captures into measured coverage outlines, structural evidence, and inspectable artifacts. It runs successfully on the three supplied LiDAR captures and is deliberately conservative when evidence is missing. Photo/video evidence includes deterministic quality checks and sampled frames. Known-pose sparse triangulation, wall-consensus room alignment, multi-scale visual-anomaly screening and reviewer-approved draft quantities are prototypes; dense media reconstruction, property-wide loop closure, structural diagnosis and physical benchmark evidence remain outside the validated scope.
 
 No survey, tape, or laser reference was supplied. Consequently, no number in this report is an absolute-accuracy claim. Fit residuals describe internal consistency, bootstrap intervals describe estimator precision, and synthetic fixtures test known geometry. None substitutes for measurements of the physical rooms.
 
@@ -36,15 +36,16 @@ photo/video file or directory
         |
         v
 media.py            decode images, inspect video streams, hash, publish manifest
-        +------> stitching.py  manual-anchor registration and wall candidates
-        +------> damage.py     experimental visual-anomaly screen
+        +------> photogrammetry.py  known-pose sparse triangulation
+        +------> stitching.py      manual/automatic wall registration
+        +------> damage.py         anomaly masks and reviewed draft scope
 ```
 
 Depth pixels that pass confidence and range checks are back-projected with scaled camera intrinsics, transformed by recorded ARKit camera-to-world poses, and fused into a deterministic voxel cloud. Structural analysis identifies the floor relative to the camera trajectory, defines a floor-local coordinate system, and builds an occupancy-supported outline from floor inliers. A concave outline is accepted only when retention, direct support, support improvement, topology, area, and pathology guards pass; otherwise the convex fallback is explicit.
 
 Wall planes receive deterministic per-capture identifiers and finite spans. Opening candidates are vertical void runs bounded by credible wall material. A candidate must have solid flanks, acceptable dimensions, sufficient wall coverage, and positive evidence behind the void through pass-through points or far-side floor. Absence of wall returns alone is never treated as a door.
 
-`ingest` publishes `media-input.json`; `--evidence` adds hashed sampled frames and `contact-sheet.jpg`. `stitch` writes an anchored registration artifact, and `screen-damage` writes an experimental review artifact. `run` publishes exactly seven LiDAR files: `result.json`, `reconstruction.ply`, `topdown.png`, `trajectory.png`, `floorplan.svg`, `floorplan.png`, and `report.md`. `batch` adds `batch.json` and `batch-report.md`; `evaluate` produces an evaluation JSON, report, and capability matrix; `ablate` produces JSON and Markdown. Current result, structure, and batch schema is `1.4.0`, with readers for `1.0.0` through `1.3.0`.
+`ingest` publishes `media-input.json`; `--evidence` adds hashed sampled frames and `contact-sheet.jpg`. `triangulate-media` writes calibrated sparse JSON/PLY, `stitch` writes manual or automatic wall-registration evidence, `screen-damage` writes experimental candidates, and `scope-repair` creates a reviewer-driven draft. `run` publishes exactly seven LiDAR files: `result.json`, `reconstruction.ply`, `topdown.png`, `trajectory.png`, `floorplan.svg`, `floorplan.png`, and `report.md`. `batch` adds `batch.json` and `batch-report.md`; `evaluate` produces an evaluation JSON, report, and capability matrix; `ablate` produces JSON and Markdown. Current result, structure, and batch schema is `1.4.0`, with readers for `1.0.0` through `1.3.0`.
 
 ## 2 Tier design and device matrix
 
@@ -126,7 +127,7 @@ The declaration and result are in `docs/fix-loop-declaration.md` and `docs/fix-l
 - Adjacency evidence is local to one wall and is not a property-wide room graph.
 - Published intervals measure precision, not accuracy. An opening-width interval is omitted when too few point resamples reproduce the same named opening.
 - The drift ablation addresses vertical floor-relative error only.
-- Photo/video capture evidence is implemented; metric reconstruction remains the LiDAR-tier product. Manually anchored stitching and visual-anomaly screening are prototypes. Automatic global stitching, structural diagnosis, concealed-condition inference, repair quantities, and incumbent comparison remain outside the validated scope.
+- Photo/video capture evidence is implemented. Known-pose sparse media triangulation, automatic wall-consensus alignment, visual-anomaly masks and reviewed draft quantities are prototypes. Dense media reconstruction, property-wide loop closure, structural diagnosis, concealed-condition inference, autonomous repair selection, and incumbent comparison remain outside the validated scope.
 - Real accuracy, calibration coverage, and repeatability remain unmeasured because the required physical benchmark data is absent.
 
 The project's strongest claim is reproducibility: the dependency set can be installed locally, media can be validated into deterministic manifests, the supplied LiDAR archives can be validated, the same geometry and identifiers can be reproduced, every warning and evidence field can be inspected, the automated suite can be run, and independent truth can be supplied to the evaluator. The complete capability status is in `docs/compliance-matrix.md`.

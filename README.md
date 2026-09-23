@@ -8,7 +8,7 @@ This repository contains the runnable pipeline, tests, capture instructions, ben
 
 The project provides deterministic photo and video ingestion plus an offline LiDAR geometry pipeline with validation, metric reconstruction, structural measurement, component-aware concave floor outlines, deterministic wall identity, conservative opening detection, evidence-gated room adjacency, independent ground-truth evaluation, precision intervals, and bounded plane-anchored drift-correction ablation. Photo sets are decoded and inventoried; video streams are inspected with local FFprobe. Metric floor-plan reconstruction remains LiDAR-only.
 
-The CLI can ingest photo/video inputs, validate LiDAR captures, reconstruct, measure, produce a complete single-capture result, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
+The CLI can ingest and quality-screen photo/video inputs, triangulate calibrated known-pose media observations, validate LiDAR captures, reconstruct, measure, align room results, screen visual anomalies, draft reviewer-approved scope quantities, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
 
 ## Architecture
 
@@ -131,14 +131,26 @@ python -m cozmo_scan stitch room-b\result.json room-a\result.json `
 
 The output contains the rigid transform, anchor residuals, transformed source walls and floor outline, and unique candidate wall matches scored by orientation, length, and placement. This is a manually initialized prototype, not automatic whole-property registration.
 
+For an automatic initial hypothesis, replace `--anchors ...` with `--auto`. The automatic mode tries wall-pair rotations and translations, chooses the largest low-residual consensus, and refines the transform from all matched wall midpoints. Repeated rectangular layouts remain ambiguous, so the output includes a confidence label and residuals.
+
+Known-pose photo or video observations can produce a sparse metric point cloud:
+
+```powershell
+python -m cozmo_scan triangulate-media observations.json `
+  --output runs\media-reconstruction
+```
+
+The manifest supplies a 3 x 3 camera matrix, `translation_unit: "metre"`, and at least two views containing metric `world_from_camera` matrices plus named `[u, v]` observations. Multi-view DLT triangulation rejects points behind a camera or above the configured reprojection-error gate and writes JSON plus PLY. This is a working calibrated sparse reconstruction core; feature matching and dense multi-view stereo remain external steps.
+
 An explicitly experimental screen can flag thin, dark, locally contrasting image regions for review:
 
 ```powershell
 python -m cozmo_scan screen-damage runs\media\room-a-video\frames `
+  --metres-per-pixel 0.001 `
   --output runs\media\room-a-video\damage-screen.json
 ```
 
-The screen publishes hashes, candidate fractions, normalized bounding boxes, limitations, and a human-inspection scope. It never declares structural damage, proves absence, or estimates repair quantities without labelled evidence and surface scale.
+The multi-scale screen publishes hashes, connected candidate components, local contrast, normalized bounding boxes and optional image-plane metric area/extent. It never declares structural damage or proves absence. `scope-repair` consumes this scaled evidence plus explicit reviewer confirmations/actions and creates draft line items; the draft remains marked as requiring engineering approval.
 
 ## Reproducible demonstration
 
@@ -250,7 +262,7 @@ The final output is staged before publication. Existing known artifacts require 
 
 `result.json` also carries `room.openings`: the identified wall segments, every published opening with its width, optional height, classification, confidence and supporting evidence, any adjacency links, and every rejected candidate with the reason it was rejected.
 
-The final schema marks photo/video ingestion as `supported`. Capabilities are tier-specific: media tiers publish validated provenance manifests, while the LiDAR tier publishes metric geometry. Damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing remain outside the current scope; ground-truth accuracy and multi-room stitching are `not_evaluated`. Wall identity, opening detection, and room adjacency report their own status per capture. Missing measurements remain `null`.
+The final schema marks photo/video ingestion as `supported`. Capabilities are tier-specific: media tiers publish validated provenance manifests, while LiDAR publishes dense metric geometry. Known-pose media triangulation, automatic wall alignment, visual-anomaly screening and reviewer-driven scope quantities are prototypes, not validated product claims. Concealed-condition prediction and live mobile processing remain outside scope; ground-truth accuracy is `not_evaluated`. Wall identity, opening detection, room adjacency and intervals report their own status per capture. Missing measurements remain `null`.
 
 The current result, structure, and batch schema is `1.4.0`, including published measurement intervals. Readers remain compatible with `1.0.0` through `1.3.0`; older artifacts load with missing openings as `null` and missing intervals as an empty collection rather than fabricated evidence.
 
@@ -378,7 +390,7 @@ The automated suite covers media ingestion, LiDAR validation, reconstruction, st
 
 ## Scope boundary
 
-The three input tiers have explicit products: photo and video produce validated, versioned provenance manifests; LiDAR produces metric geometry and measured plans. Damage classification, concealed-condition prediction, automated repair scope, calibrated interval coverage, and multi-room stitching are outside the current scope. Published intervals are precision only, in the sense of the [Measurement intervals](#measurement-intervals) section, and opening width still carries none. Capability boundaries are represented explicitly instead of returning fabricated values.
+The three input tiers have explicit products: photo and video produce validated evidence manifests and can feed calibrated sparse known-pose triangulation; LiDAR produces dense metric geometry and measured plans. Automatic wall alignment, anomaly masks and reviewer-driven scope quantities are prototype capabilities. Concealed-condition prediction, autonomous repair decisions and calibrated interval coverage remain outside the validated scope. Published intervals are precision only, including opening widths that survive enough resamples. Capability boundaries are represented explicitly instead of returning fabricated values.
 
 Known limitations:
 
