@@ -55,4 +55,4 @@ python -m cozmo_scan run sample\defense_room.zip `
 
 Validation exit code `0` means the capture is structurally usable. Exit code `2` identifies a capture or layout error. Read `runs\defense-room\report.md` first, then inspect the PNG/SVG plan and `result.json`.
 
-The output is a measured LiDAR coverage extent with evidence and warnings. It does not provide photo/video reconstruction, multi-room stitching, damage detection, concealed-condition flags, repair scope, calibrated accuracy, or guaranteed opening detection. An empty opening list means no candidate passed the evidence gates; it does not prove that the room has no openings.
+The LiDAR output is a measured coverage extent with evidence and warnings. Separate photo/video inputs publish validated manifests through `cozmo-scan ingest`; the LiDAR tier publishes metric reconstruction. Multi-room stitching, damage detection, concealed-condition flags, repair scope, calibrated accuracy, and guaranteed opening detection are outside the current scope. An empty opening list means no candidate passed the evidence gates; it does not prove that the room has no openings.

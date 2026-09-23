@@ -1,14 +1,14 @@
 # Cozmo Scan
 
-Offline reconstruction and measured floor-plan generation for the supplied Stray Scanner/ARKit LiDAR captures.
+Offline media ingestion plus reconstruction and measured floor-plan generation for Stray Scanner/ARKit LiDAR captures.
 
 This repository contains the runnable pipeline, tests, capture instructions, benchmark tooling, fix-loop evidence, and technical documentation for the project.
 
 ## Current status
 
-The project provides an offline LiDAR pipeline with validation, metric reconstruction, structural measurement, component-aware concave floor outlines, deterministic wall identity, conservative opening detection, evidence-gated room adjacency, independent ground-truth evaluation, precision intervals, and bounded plane-anchored drift-correction ablation. A convex outline remains available as a safety fallback when the supported concave contour fails its topology or evidence gates.
+The project provides deterministic photo and video ingestion plus an offline LiDAR geometry pipeline with validation, metric reconstruction, structural measurement, component-aware concave floor outlines, deterministic wall identity, conservative opening detection, evidence-gated room adjacency, independent ground-truth evaluation, precision intervals, and bounded plane-anchored drift-correction ablation. Photo sets are decoded and inventoried; video streams are inspected with local FFprobe. Metric floor-plan reconstruction remains LiDAR-only.
 
-The CLI can validate, reconstruct, measure, produce a complete single-capture result, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
+The CLI can ingest photo/video inputs, validate LiDAR captures, reconstruct, measure, produce a complete single-capture result, run the same configuration across a directory, score published results against independent measurements, and publish a drift-correction ablation.
 
 ## Architecture
 
@@ -42,6 +42,7 @@ benchmark.py        compare published results with independent truth and exact g
 
 drift.py            rebuild both drift-correction arms and publish the ablation
 grid.py             occupancy-cell primitives shared by floorplan.py and openings.py
+media.py            decode/inventory photo sets and inspect video streams
 ```
 
 `models.py` contains the immutable versioned contracts, while `cli.py` contains only command parsing and user-facing orchestration. Numerical logic is not duplicated in the CLI, batch runner, or demo script.
@@ -51,6 +52,7 @@ grid.py             occupancy-cell primitives shared by floorplan.py and opening
 - Python 3.12 or newer
 - The supplied sample archives, stored locally in the ignored `sample/` directory
 - A Windows, Linux, or macOS environment capable of installing the dependencies declared in `pyproject.toml`
+- FFmpeg/FFprobe on `PATH` for video ingestion only
 
 No GPU, cloud account, API key, database, or web server is required.
 
@@ -96,6 +98,22 @@ Local sample fingerprints recorded before repository cleanup:
 | `single_scan_with_ceiling.zip` | `4bfbeb11ee21b114c46ad43cf0c9602d8ada827397f4e8b3c70dd827d0191379` |
 
 These hashes identify the locally audited inputs; they are not download credentials or proof of ground truth.
+
+## Ingest photo or video input
+
+Photo ingestion recursively decodes supported JPEG, PNG, TIFF, BMP, and WebP files. Video ingestion accepts MP4, MOV, and M4V files and validates the primary stream with local FFprobe:
+
+```powershell
+python -m cozmo_scan ingest photos\room-a `
+  --tier photo `
+  --output runs\media\room-a-photos
+
+python -m cozmo_scan ingest videos\room-a.mp4 `
+  --tier video `
+  --output runs\media\room-a-video
+```
+
+Each command writes `media-input.json` with relative filenames, SHA-256 hashes, byte counts, dimensions, formats, and available video duration/frame/codec metadata. Absolute source paths are not published. The photo/video tier product is the validated media manifest; calibrated point clouds and measured plans are produced by the LiDAR tier.
 
 ## Reproducible demonstration
 
@@ -207,7 +225,7 @@ The final output is staged before publication. Existing known artifacts require 
 
 `result.json` also carries `room.openings`: the identified wall segments, every published opening with its width, optional height, classification, confidence and supporting evidence, any adjacency links, and every rejected candidate with the reason it was rejected.
 
-The final schema explicitly marks unsupported features such as photo-only reconstruction, damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing as `not_implemented`; ground-truth accuracy and multi-room stitching are `not_evaluated`. Wall identity, opening detection, and room adjacency report their own status per capture: `supported_with_limitations` when the analysis ran, `not_evaluated` when the capture could not support it. Missing measurements remain `null`.
+The final schema marks photo/video ingestion as `supported`. Capabilities are tier-specific: media tiers publish validated provenance manifests, while the LiDAR tier publishes metric geometry. Damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing remain outside the current scope; ground-truth accuracy and multi-room stitching are `not_evaluated`. Wall identity, opening detection, and room adjacency report their own status per capture. Missing measurements remain `null`.
 
 The current result, structure, and batch schema is `1.4.0`, including published measurement intervals. Readers remain compatible with `1.0.0` through `1.3.0`; older artifacts load with missing openings as `null` and missing intervals as an empty collection rather than fabricated evidence.
 
@@ -329,13 +347,13 @@ The test suite creates tiny temporary captures; it does not require the large so
 python -m unittest discover -s tests -v
 ```
 
-The suite contains 187 tests covering validation, reconstruction, structural geometry, pipeline contracts, provenance, rendering, batch discovery, failure isolation, demo flow, determinism, staged-output safety, overwrite safety, benchmark contracts, gates, repeatability, and the CLI.
+The automated suite covers media ingestion, LiDAR validation, reconstruction, structural geometry, pipeline contracts, provenance, rendering, batch discovery, failure isolation, demo flow, determinism, staged-output safety, overwrite safety, benchmark contracts, gates, repeatability, and the CLI.
 
 `tests/test_audit_regressions.py` covers adversarial regression cases. The opening and drift suites use synthetic scenes with known answers rather than only contract checks: a room with a measured door and window, the same room with solid walls, a sparsely sampled room, a void flush against the scanned wall extent, a void with unscanned floor in front of it, two rooms sharing a doorway, and the same two rooms with a solid shared wall. The drift tests verify that smoothing preserves a linear trend, that offsets oppose the residual and stay bounded, that every acceptance gate rejects for the right reason, and that a recorded-pose reconstruction is reproducible.
 
 ## Scope boundary
 
-The deadline baseline targets the three supplied LiDAR captures. It does not claim validated photo-only or video-only reconstruction, damage classification, concealed-condition prediction, automated repair scope, calibrated interval coverage, or multi-room stitching. Published intervals are precision only, in the sense of the [Measurement intervals](#measurement-intervals) section, and opening width still carries none. Unsupported capabilities are represented explicitly in the result contract and the compliance matrix instead of returning fabricated values.
+The three input tiers have explicit products: photo and video produce validated, versioned provenance manifests; LiDAR produces metric geometry and measured plans. Damage classification, concealed-condition prediction, automated repair scope, calibrated interval coverage, and multi-room stitching are outside the current scope. Published intervals are precision only, in the sense of the [Measurement intervals](#measurement-intervals) section, and opening width still carries none. Capability boundaries are represented explicitly instead of returning fabricated values.
 
 Known limitations:
 

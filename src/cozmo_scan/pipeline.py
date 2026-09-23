@@ -349,6 +349,16 @@ def build_capability_assessments(
             "Validated Stray Scanner ZIP and directory inputs.",
         ),
         _capability(
+            "photo_ingestion",
+            CapabilityStatus.SUPPORTED,
+            "Decoded image sets can be validated and inventoried with deterministic provenance.",
+        ),
+        _capability(
+            "video_ingestion",
+            CapabilityStatus.SUPPORTED,
+            "Local FFprobe validates the primary video stream and records deterministic provenance.",
+        ),
+        _capability(
             "metric_reconstruction",
             CapabilityStatus.SUPPORTED,
             "Uses recorded depth, confidence, intrinsics, and camera poses.",
@@ -394,12 +404,12 @@ def build_capability_assessments(
         _capability(
             "photo_only_reconstruction",
             CapabilityStatus.NOT_IMPLEMENTED,
-            "No supplied photo-only benchmark supports a credible implementation.",
+            "Photo ingestion is available, but calibrated metric reconstruction is not.",
         ),
         _capability(
             "video_only_reconstruction",
             CapabilityStatus.NOT_IMPLEMENTED,
-            "RGB is inventoried, but the reliable baseline uses LiDAR depth and poses.",
+            "Video ingestion is available, but calibrated metric reconstruction is not.",
         ),
         _capability(
             "damage_detection",

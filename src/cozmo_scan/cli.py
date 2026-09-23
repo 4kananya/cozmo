@@ -9,6 +9,7 @@ from pathlib import Path
 
 from cozmo_scan import __version__
 from cozmo_scan.dataset import validate_capture
+from cozmo_scan.media import MediaTier
 from cozmo_scan.models import FrameSelection, ReconstructionProfile, ValidationResult
 
 
@@ -16,7 +17,9 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the top-level command-line parser."""
     parser = argparse.ArgumentParser(
         prog="cozmo-scan",
-        description="Reconstruct and measure Stray Scanner LiDAR captures.",
+        description=(
+            "Ingest photo/video inputs and reconstruct Stray Scanner LiDAR captures."
+        ),
     )
     parser.add_argument(
         "--version",
@@ -24,6 +27,31 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command")
+
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="validate and inventory photo or video input",
+        description=(
+            "Decode photos or inspect video streams, then publish deterministic "
+            "media provenance without claiming metric reconstruction."
+        ),
+    )
+    ingest_parser.add_argument("input", type=Path, help="media file or directory")
+    ingest_parser.add_argument(
+        "--tier",
+        choices=[tier.value for tier in MediaTier],
+        required=True,
+        help="input tier to validate",
+    )
+    ingest_parser.add_argument(
+        "--output", type=Path, required=True, help="media manifest output directory"
+    )
+    ingest_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace an existing media-input.json manifest",
+    )
+    ingest_parser.set_defaults(handler=handle_ingest)
 
     validate_parser = subparsers.add_parser(
         "validate",
@@ -287,6 +315,32 @@ def handle_validate(arguments: argparse.Namespace) -> int:
     else:
         print(format_validation_report(result))
     return 0 if result.valid else 2
+
+
+def handle_ingest(arguments: argparse.Namespace) -> int:
+    """Validate photo/video media and publish deterministic provenance."""
+    from cozmo_scan.media import MediaIngestionError, ingest_media, write_media_manifest
+
+    try:
+        ingestion = ingest_media(arguments.input, arguments.tier)
+        destination = write_media_manifest(
+            ingestion,
+            arguments.output,
+            overwrite=arguments.overwrite,
+        )
+    except (MediaIngestionError, ValueError) as exc:
+        print(f"Media ingestion failed: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Status: {ingestion.status.upper()}")
+    print(f"Tier: {ingestion.tier.value}")
+    print(f"Assets: {ingestion.asset_count}")
+    print(f"Bytes: {ingestion.byte_count}")
+    print(f"Scope: {ingestion.processing_scope}")
+    print(f"Manifest: {destination}")
+    for warning in ingestion.warnings:
+        print(f"WARNING: {warning}")
+    return 0
 
 
 def handle_reconstruct(arguments: argparse.Namespace) -> int:

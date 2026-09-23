@@ -76,6 +76,14 @@ class FinalResultTests(unittest.TestCase):
             capabilities["metric_reconstruction"], CapabilityStatus.SUPPORTED
         )
         self.assertEqual(
+            capabilities["photo_ingestion"],
+            CapabilityStatus.SUPPORTED,
+        )
+        self.assertEqual(
+            capabilities["video_ingestion"],
+            CapabilityStatus.SUPPORTED,
+        )
+        self.assertEqual(
             capabilities["damage_detection"], CapabilityStatus.NOT_IMPLEMENTED
         )
         self.assertEqual(

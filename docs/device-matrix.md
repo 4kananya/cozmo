@@ -1,16 +1,16 @@
 # Device matrix
 
-Which input tier runs on which hardware, and what each tier honestly delivers. One tier is implemented. The other two remain documented scope items and are marked not implemented rather than described as if they existed. Capture uses a stock iOS app, Stray Scanner, as set out in [capture-route.md](capture-route.md). There is no Cozmo iOS application.
+Which input tier runs on which hardware, and what each tier honestly delivers. All three tiers can be ingested, while metric geometry is implemented only for LiDAR. Capture uses a stock iOS app, Stray Scanner, as set out in [capture-route.md](capture-route.md). There is no Cozmo iOS application.
 
 ## Input tiers
 
 | Tier | Status | Capture hardware | Processing hardware | What it produces | Accuracy |
 |---|---|---|---|---|---|
 | LiDAR depth plus ARKit pose, captured with Stray Scanner | Implemented | LiDAR equipped Pro class iPhone, iPhone 12 Pro or later | Any Windows, Linux or macOS laptop with Python 3.12. CPU only | Dimensioned floor outline with area, perimeter, principal dimensions and per edge lengths; wall planes with deterministic identifiers; ceiling height when an evidence supported ceiling plane exists; conservatively gated door and window openings with measured widths; plan as SVG and PNG; point cloud as PLY; machine readable `result.json` and a Markdown report | Not established, no ground truth supplied |
-| Video | Not implemented | No hardware runs this tier | No hardware runs this tier | Nothing. `rgb.mp4` is inventoried during validation and is not used by the geometry path | Not established, no ground truth supplied |
-| Photo | Not implemented | No hardware runs this tier | No hardware runs this tier | Nothing | Not established, no ground truth supplied |
+| Video | Implemented ingestion | Any camera producing MP4, MOV, or M4V | Laptop with Python 3.12 and FFprobe | `media-input.json` containing validated stream metadata, relative name, SHA-256, and byte count | Input validation and provenance only; metric geometry is the LiDAR product |
+| Photo | Implemented ingestion | Any camera producing JPEG, PNG, TIFF, BMP, or WebP | Any Windows, Linux, or macOS laptop with Python 3.12 | `media-input.json` containing decoded dimensions, format, relative name, SHA-256, and byte count | Input validation and provenance only; metric geometry is the LiDAR product |
 
-An iPhone without a LiDAR sensor cannot feed the implemented tier, and there is no fallback tier for it to feed instead.
+An iPhone without LiDAR can feed the media-ingestion tiers, but those tiers do not produce metric geometry or a floor plan.
 
 ## Capture device requirements
 
@@ -29,10 +29,10 @@ An iPhone without a LiDAR sensor cannot feed the implemented tier, and there is 
 | Requirement | Value |
 |---|---|
 | Runtime | Python 3.12 |
-| Runtime dependencies | NumPy, Pillow, Pydantic |
+| Runtime dependencies | NumPy, Pillow, Pydantic; FFprobe for video ingestion |
 | Compute | CPU only. No GPU |
 | Network | None. Fully offline. No cloud account, no API key |
-| Command | `python -m cozmo_scan run <capture.zip> --output <dir> --profile fast`, or `batch` over a directory of captures |
+| Command | `python -m cozmo_scan ingest <media> --tier photo|video --output <dir>`; `python -m cozmo_scan run <capture.zip> --output <dir> --profile fast` for LiDAR geometry |
 | Observed runtime | All three supplied captures process in about 10 seconds in total on an Apple silicon laptop under the `fast` profile |
 
 ## Accuracy
@@ -44,9 +44,9 @@ Two coverage facts are worth reading alongside any measurement:
 - a wall whose top was never scanned is flagged `height_is_coverage_limited`, and on two of the three supplied captures every wall carries that flag;
 - an empty opening list means no candidate passed the evidence gates, not that the room has no doors or windows.
 
-## Not available on any tier
+## Current scope boundaries
 
-- no photo tier and no video tier;
+- metric reconstruction and measured plans use LiDAR input;
 - no multi room stitching;
 - no damage detection;
 - no concealed condition flags;

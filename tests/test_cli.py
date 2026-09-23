@@ -24,6 +24,16 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(arguments.command, "validate")
         self.assertEqual(arguments.capture, Path("capture.zip"))
 
+    def test_parser_exposes_media_ingestion_command(self) -> None:
+        arguments = build_parser().parse_args(
+            ["ingest", "photos", "--tier", "photo", "--output", "media-run"]
+        )
+
+        self.assertEqual(arguments.command, "ingest")
+        self.assertEqual(arguments.input, Path("photos"))
+        self.assertEqual(arguments.tier, "photo")
+        self.assertEqual(arguments.output, Path("media-run"))
+
     def test_parser_exposes_reconstruct_command(self) -> None:
         arguments = build_parser().parse_args(
             [
@@ -121,6 +131,24 @@ class CommandLineTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 2)
         self.assertIn("Reconstruction failed", errors.getvalue())
+
+    def test_media_ingestion_returns_two_for_missing_input(self) -> None:
+        errors = io.StringIO()
+
+        with redirect_stderr(errors):
+            exit_code = main(
+                [
+                    "ingest",
+                    "missing-photos",
+                    "--tier",
+                    "photo",
+                    "--output",
+                    "unused-output",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Media ingestion failed", errors.getvalue())
 
     def test_measure_returns_two_for_missing_input(self) -> None:
         errors = io.StringIO()
