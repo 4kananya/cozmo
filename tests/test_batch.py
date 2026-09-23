@@ -38,6 +38,7 @@ def make_success(name: str = "room.zip") -> BatchItemResult:
         output_point_count=3456,
         floor_area_m2=18.25,
         area_is_provisional=False,
+        outline_method="occupancy_concave",
         length_m=5.0,
         width_m=3.8,
         perimeter_m=17.6,
@@ -252,6 +253,7 @@ class BatchOutputTests(unittest.TestCase):
             )
             report = paths["batch_report"].read_text(encoding="utf-8")
             self.assertIn("Cross-capture results", report)
+            self.assertIn("occupancy_concave", report)
             self.assertIn("## Failures", report)
             self.assertIn("bad\\|capture.zip", report)
             unrelated = destination / "reviewer-note.txt"

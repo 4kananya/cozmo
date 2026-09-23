@@ -107,9 +107,10 @@ def run_batch(
                 output_point_count=result.reconstruction.output_point_count,
                 floor_area_m2=plan.area_m2,
                 area_is_provisional=(
-                    plan.convex_fill_ratio
+                    plan.boundary_support_ratio
                     < result.config.structure.minimum_boundary_fill_ratio
                 ),
+                outline_method=plan.outline_method,
                 length_m=plan.length_m,
                 width_m=plan.width_m,
                 perimeter_m=plan.perimeter_m,
@@ -238,10 +239,10 @@ def write_batch_report(path: str | Path, summary: BatchSummary) -> None:
         "## Cross-capture results",
         "",
         (
-            "| Capture | Status | Points | Area | Dimensions | Perimeter | Walls | "
+            "| Capture | Status | Points | Area | Outline | Dimensions | Perimeter | Walls | "
             "Ceiling | Floor support | Floor RMSE | Fill | Confidence | Warnings | Runtime |"
         ),
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for item in summary.items:
         area = _optional_measurement(item.floor_area_m2, "m²")
@@ -277,6 +278,7 @@ def write_batch_report(path: str | Path, summary: BatchSummary) -> None:
                     item.status,
                     _optional_integer(item.output_point_count),
                     area,
+                    item.outline_method or "not available",
                     dimensions,
                     _optional_measurement(item.perimeter_m, "m"),
                     _optional_integer(item.detected_wall_count),
@@ -311,8 +313,9 @@ def write_batch_report(path: str | Path, summary: BatchSummary) -> None:
                 "frozen configuration."
             ),
             (
-                "Area marked provisional is the convex measured boundary and may "
-                "overfill unscanned or concave regions."
+                "Area marked provisional has weak occupied support. An occupancy "
+                "contour is used only after topology/support checks; otherwise the "
+                "convex safety fallback may overfill concave or unscanned regions."
             ),
             (
                 "A missing ceiling means no ceiling plane passed the evidence "

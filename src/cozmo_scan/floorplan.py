@@ -47,6 +47,21 @@ class StructureResult:
     summary: StructureSummary
 
 
+@dataclass(frozen=True, slots=True)
+class OutlineSelection:
+    """Selected floor outline plus evidence for concave acceptance/fallback."""
+
+    vertices_xy_m: NDArray[np.float64]
+    method: Literal["convex_hull", "occupancy_concave"]
+    supporting_cell_count: int
+    occupied_cell_area_m2: float
+    support_ratio: float
+    connected_component_count: int
+    retained_component_ratio: float
+    discarded_cell_count: int
+    fallback_reason: str | None = None
+
+
 def classify_plane(
     normal_xyz: FloatArray,
     *,
@@ -208,6 +223,276 @@ def build_convex_outline(points_xy_m: FloatArray) -> NDArray[np.float64]:
     return np.asarray(hull, dtype=np.float64)
 
 
+def build_occupancy_cells(
+    points_xy_m: FloatArray, grid_size_m: float
+) -> set[tuple[int, int]]:
+    """Quantize finite floor-local points to deterministic integer grid cells."""
+    points = np.asarray(points_xy_m, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError("occupancy points must have shape (N, 2)")
+    if grid_size_m <= 0:
+        raise ValueError("grid_size_m must be positive")
+    finite = points[np.isfinite(points).all(axis=1)]
+    cells = np.floor(finite / grid_size_m).astype(np.int64)
+    return {(int(cell[0]), int(cell[1])) for cell in cells}
+
+
+def close_occupancy_cells(
+    cells: set[tuple[int, int]], radius_cells: int
+) -> set[tuple[int, int]]:
+    """Close one-cell-scale gaps with square dilation followed by erosion."""
+    if radius_cells < 0:
+        raise ValueError("radius_cells must be non-negative")
+    if not cells or radius_cells == 0:
+        return set(cells)
+    offsets = tuple(
+        (dx, dy)
+        for dx in range(-radius_cells, radius_cells + 1)
+        for dy in range(-radius_cells, radius_cells + 1)
+    )
+    dilated = {
+        (cell_x + dx, cell_y + dy)
+        for cell_x, cell_y in cells
+        for dx, dy in offsets
+    }
+    return {
+        (cell_x, cell_y)
+        for cell_x, cell_y in dilated
+        if all((cell_x + dx, cell_y + dy) in dilated for dx, dy in offsets)
+    }
+
+
+def connected_occupancy_components(
+    cells: set[tuple[int, int]],
+) -> tuple[frozenset[tuple[int, int]], ...]:
+    """Return deterministic four-neighbour occupancy components, largest first."""
+    remaining = set(cells)
+    components: list[frozenset[tuple[int, int]]] = []
+    while remaining:
+        seed = min(remaining)
+        remaining.remove(seed)
+        component = {seed}
+        pending = [seed]
+        while pending:
+            cell_x, cell_y = pending.pop()
+            for neighbour in (
+                (cell_x - 1, cell_y),
+                (cell_x, cell_y - 1),
+                (cell_x, cell_y + 1),
+                (cell_x + 1, cell_y),
+            ):
+                if neighbour in remaining:
+                    remaining.remove(neighbour)
+                    component.add(neighbour)
+                    pending.append(neighbour)
+        components.append(frozenset(component))
+    components.sort(key=lambda component: (-len(component), min(component)))
+    return tuple(components)
+
+
+def trace_occupancy_boundary(
+    cells: set[tuple[int, int]] | frozenset[tuple[int, int]],
+    grid_size_m: float,
+) -> NDArray[np.float64]:
+    """Trace the largest counter-clockwise outer loop of occupied square cells."""
+    if not cells:
+        raise StructureError("Cannot trace an empty occupancy grid")
+    if grid_size_m <= 0:
+        raise ValueError("grid_size_m must be positive")
+    edges: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+    for cell_x, cell_y in cells:
+        if (cell_x, cell_y - 1) not in cells:
+            edges.add(((cell_x, cell_y), (cell_x + 1, cell_y)))
+        if (cell_x + 1, cell_y) not in cells:
+            edges.add(((cell_x + 1, cell_y), (cell_x + 1, cell_y + 1)))
+        if (cell_x, cell_y + 1) not in cells:
+            edges.add(((cell_x + 1, cell_y + 1), (cell_x, cell_y + 1)))
+        if (cell_x - 1, cell_y) not in cells:
+            edges.add(((cell_x, cell_y + 1), (cell_x, cell_y)))
+    if len(edges) < 4:
+        raise StructureError("Occupancy grid has no traceable outer boundary")
+
+    outgoing: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for start, end in edges:
+        outgoing.setdefault(start, []).append(end)
+    for candidates in outgoing.values():
+        candidates.sort()
+
+    unused = set(edges)
+    loops: list[NDArray[np.float64]] = []
+    while unused:
+        start, end = min(unused)
+        unused.remove((start, end))
+        loop = [start]
+        previous = start
+        current = end
+        while current != start:
+            loop.append(current)
+            candidates = [
+                candidate
+                for candidate in outgoing.get(current, ())
+                if (current, candidate) in unused
+            ]
+            if not candidates or len(loop) > len(edges) + 1:
+                raise StructureError("Occupancy boundary contains an open or ambiguous loop")
+            following = min(
+                candidates,
+                key=lambda candidate: (
+                    _turn_priority(previous, current, candidate),
+                    candidate,
+                ),
+            )
+            unused.remove((current, following))
+            previous, current = current, following
+        vertices = np.asarray(loop, dtype=np.float64) * grid_size_m
+        if len(vertices) >= 3:
+            loops.append(vertices)
+    if not loops:
+        raise StructureError("Occupancy boundary contains no closed polygon")
+    positive = [loop for loop in loops if _signed_polygon_area(loop) > 0]
+    candidates = positive or [loop[::-1] for loop in loops]
+    return max(candidates, key=lambda loop: abs(_signed_polygon_area(loop)))
+
+
+def is_simple_polygon(vertices_xy_m: FloatArray) -> bool:
+    """Return whether a polygon has unique vertices and no edge crossings."""
+    vertices = np.asarray(vertices_xy_m, dtype=np.float64)
+    if vertices.ndim != 2 or vertices.shape[1] != 2 or len(vertices) < 3:
+        return False
+    if not np.isfinite(vertices).all():
+        return False
+    if len({(float(x), float(y)) for x, y in vertices}) != len(vertices):
+        return False
+    count = len(vertices)
+    for first_index in range(count):
+        first_start = vertices[first_index]
+        first_end = vertices[(first_index + 1) % count]
+        if float(np.linalg.norm(first_end - first_start)) <= 1e-12:
+            return False
+        for second_index in range(first_index + 1, count):
+            if second_index in {
+                first_index,
+                (first_index + 1) % count,
+                (first_index - 1) % count,
+            }:
+                continue
+            second_start = vertices[second_index]
+            second_end = vertices[(second_index + 1) % count]
+            if _segments_intersect(
+                first_start, first_end, second_start, second_end
+            ):
+                return False
+    return abs(_signed_polygon_area(vertices)) > 1e-10
+
+
+def select_floor_outline(
+    boundary_points_xy_m: FloatArray,
+    config: StructureConfig,
+) -> OutlineSelection:
+    """Prefer a supported concave occupancy contour, else retain the convex hull."""
+    points = np.asarray(boundary_points_xy_m, dtype=np.float64)
+    cells = build_occupancy_cells(points, config.boundary_grid_size_m)
+    if len(cells) < 3:
+        raise StructureError("Too few occupied cells for a floor outline")
+    grid_area = config.boundary_grid_size_m**2
+    convex = simplify_polygon(
+        build_convex_outline(points), config.polygon_simplify_tolerance_m
+    )
+    fallback_area = abs(_signed_polygon_area(convex))
+    fallback_support = min(1.0, len(cells) * grid_area / fallback_area)
+    cell_corners = np.asarray(
+        [
+            (cell_x + offset_x, cell_y + offset_y)
+            for cell_x, cell_y in sorted(cells)
+            for offset_x, offset_y in ((0, 0), (1, 0), (1, 1), (0, 1))
+        ],
+        dtype=np.float64,
+    ) * config.boundary_grid_size_m
+    occupancy_convex = build_convex_outline(cell_corners)
+    occupancy_convex_area = abs(_signed_polygon_area(occupancy_convex))
+    occupancy_convex_perimeter = _polygon_perimeter(occupancy_convex)
+    occupancy_convex_support = min(
+        1.0, len(cells) * grid_area / occupancy_convex_area
+    )
+
+    component_count = 1
+    fallback_reason: str | None = None
+    try:
+        closed = close_occupancy_cells(cells, config.boundary_close_radius_cells)
+        components = connected_occupancy_components(closed)
+        if not components:
+            raise StructureError("occupancy cleanup removed every component")
+        component_count = len(components)
+        component = components[0]
+        retained_cells = cells.intersection(component)
+        retained_ratio = len(retained_cells) / len(cells)
+        if retained_ratio < config.minimum_component_cell_ratio:
+            raise StructureError(
+                f"largest component retains only {retained_ratio:.1%} of occupied cells"
+            )
+        concave = trace_occupancy_boundary(component, config.boundary_grid_size_m)
+        concave = simplify_polygon(concave, config.concave_simplify_tolerance_m)
+        if _signed_polygon_area(concave) < 0:
+            concave = concave[::-1]
+        if not is_simple_polygon(concave):
+            raise StructureError("simplified occupancy contour is not a simple polygon")
+        if len(concave) > config.maximum_concave_vertices:
+            raise StructureError(
+                f"occupancy contour has {len(concave)} vertices; "
+                f"maximum is {config.maximum_concave_vertices}"
+            )
+        concave_area = abs(_signed_polygon_area(concave))
+        concave_perimeter = _polygon_perimeter(concave)
+        occupied_area = len(retained_cells) * grid_area
+        raw_support = occupied_area / concave_area
+        if raw_support > 1.02:
+            raise StructureError("simplified occupancy contour cuts through supported cells")
+        support = min(1.0, raw_support)
+        if concave_area > occupancy_convex_area * 1.001:
+            raise StructureError("occupancy contour exceeds the convex-hull area")
+        perimeter_ratio = concave_perimeter / occupancy_convex_perimeter
+        if perimeter_ratio > config.maximum_concave_perimeter_ratio:
+            raise StructureError(
+                f"occupancy contour perimeter is {perimeter_ratio:.2f}x the "
+                f"convex perimeter; maximum is {config.maximum_concave_perimeter_ratio:.2f}x"
+            )
+        if support < config.minimum_concave_support_ratio:
+            raise StructureError(
+                f"occupancy contour support {support:.1%} is below "
+                f"{config.minimum_concave_support_ratio:.1%}"
+            )
+        improvement = support - occupancy_convex_support
+        if improvement < config.minimum_concave_support_improvement:
+            raise StructureError(
+                f"support improves by only {improvement:.1%}; "
+                f"{config.minimum_concave_support_improvement:.1%} is required"
+            )
+        return OutlineSelection(
+            vertices_xy_m=concave,
+            method="occupancy_concave",
+            supporting_cell_count=len(retained_cells),
+            occupied_cell_area_m2=occupied_area,
+            support_ratio=support,
+            connected_component_count=component_count,
+            retained_component_ratio=retained_ratio,
+            discarded_cell_count=len(cells) - len(retained_cells),
+        )
+    except StructureError as exc:
+        fallback_reason = str(exc)
+
+    return OutlineSelection(
+        vertices_xy_m=convex,
+        method="convex_hull",
+        supporting_cell_count=len(cells),
+        occupied_cell_area_m2=len(cells) * grid_area,
+        support_ratio=fallback_support,
+        connected_component_count=component_count,
+        retained_component_ratio=1.0,
+        discarded_cell_count=0,
+        fallback_reason=fallback_reason,
+    )
+
+
 def simplify_polygon(
     vertices_xy_m: FloatArray, tolerance_m: float
 ) -> NDArray[np.float64]:
@@ -248,6 +533,11 @@ def measure_polygon(
     *,
     supporting_cell_count: int,
     occupied_cell_area_m2: float | None = None,
+    outline_method: Literal["convex_hull", "occupancy_concave"] = "convex_hull",
+    connected_component_count: int = 1,
+    retained_component_ratio: float = 1.0,
+    discarded_cell_count: int = 0,
+    fallback_reason: str | None = None,
 ) -> FloorPlanMeasurement:
     """Calculate edges, area, perimeter, and minimum-area-box dimensions."""
     vertices = np.asarray(vertices_xy_m, dtype=np.float64)
@@ -280,6 +570,11 @@ def measure_polygon(
         supporting_cell_count=supporting_cell_count,
         occupied_cell_area_m2=float(occupied_area),
         convex_fill_ratio=min(1.0, float(occupied_area / area)),
+        outline_method=outline_method,
+        connected_component_count=connected_component_count,
+        retained_component_ratio=retained_component_ratio,
+        discarded_cell_count=discarded_cell_count,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -287,7 +582,7 @@ def analyze_structure(
     reconstruction: ReconstructionResult,
     config: StructureConfig | None = None,
 ) -> StructureResult:
-    """Extract trustworthy structural planes and a measured convex floor plan."""
+    """Extract structural planes and a supported floor plan with safe fallback."""
     started = time.perf_counter()
     effective = config or StructureConfig()
     points = _finite_points(reconstruction.points_xyz_m)
@@ -302,16 +597,16 @@ def analyze_structure(
     floor_points = points[floor_fit.inlier_mask]
     projected = project_points_to_floor(floor_points, coordinates)
     boundary_points = trim_boundary_outliers(projected, effective)
-    outline = simplify_polygon(
-        build_convex_outline(boundary_points),
-        effective.polygon_simplify_tolerance_m,
-    )
+    outline = select_floor_outline(boundary_points, effective)
     floor_plan = measure_polygon(
-        outline,
-        supporting_cell_count=len(boundary_points),
-        occupied_cell_area_m2=(
-            len(boundary_points) * effective.boundary_grid_size_m**2
-        ),
+        outline.vertices_xy_m,
+        supporting_cell_count=outline.supporting_cell_count,
+        occupied_cell_area_m2=outline.occupied_cell_area_m2,
+        outline_method=outline.method,
+        connected_component_count=outline.connected_component_count,
+        retained_component_ratio=outline.retained_component_ratio,
+        discarded_cell_count=outline.discarded_cell_count,
+        fallback_reason=outline.fallback_reason,
     )
 
     ceiling_fit, ceiling, ceiling_height = detect_ceiling(
@@ -324,9 +619,17 @@ def analyze_structure(
         effective,
     )
 
-    warnings = [
-        "Floor outline is a convex approximation and may overfill concave spaces."
-    ]
+    warnings = []
+    if floor_plan.outline_method == "occupancy_concave":
+        warnings.append(
+            "Floor outline uses a component-aware occupancy contour; unscanned gaps can still affect the boundary."
+        )
+    else:
+        reason = floor_plan.fallback_reason or "concave evidence was unavailable"
+        warnings.append(
+            "Floor outline uses the safe convex fallback and may overfill concave spaces: "
+            + reason
+        )
     if ceiling is None:
         warnings.append(
             "No ceiling plane met the support and geometry checks; ceiling height is unavailable."
@@ -343,11 +646,11 @@ def analyze_structure(
         warnings.append(
             f"Floor support is {floor.inlier_ratio:.1%} of the point cloud; boundary confidence is limited."
         )
-    if floor_plan.convex_fill_ratio < effective.minimum_boundary_fill_ratio:
+    if floor_plan.boundary_support_ratio < effective.minimum_boundary_fill_ratio:
         warnings.append(
             "Only "
-            f"{floor_plan.convex_fill_ratio:.1%} of the convex outline is backed by occupied floor cells; "
-            "the outline likely bridges unscanned or concave regions and its area should be treated as provisional."
+            f"{floor_plan.boundary_support_ratio:.1%} of the selected outline is backed by occupied floor cells; "
+            "the boundary includes weakly supported space and its area should be treated as provisional."
         )
     if (
         floor_plan.area_m2 > effective.maximum_area_warning_m2
@@ -720,6 +1023,86 @@ def _plane_axes(
     first = _normalized(reference - float(reference @ normal) * normal)
     second = _normalized(np.cross(first, normal))
     return first, second
+
+
+def _turn_priority(
+    previous: tuple[int, int],
+    current: tuple[int, int],
+    following: tuple[int, int],
+) -> int:
+    """Prefer left, straight, right, then reverse at ambiguous grid vertices."""
+    incoming = (current[0] - previous[0], current[1] - previous[1])
+    outgoing = (following[0] - current[0], following[1] - current[1])
+    cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0]
+    dot = incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+    if cross > 0:
+        return 0
+    if dot > 0:
+        return 1
+    if cross < 0:
+        return 2
+    return 3
+
+
+def _signed_polygon_area(vertices_xy_m: FloatArray) -> float:
+    vertices = np.asarray(vertices_xy_m, dtype=np.float64)
+    return 0.5 * float(
+        np.dot(vertices[:, 0], np.roll(vertices[:, 1], -1))
+        - np.dot(vertices[:, 1], np.roll(vertices[:, 0], -1))
+    )
+
+
+def _polygon_perimeter(vertices_xy_m: FloatArray) -> float:
+    vertices = np.asarray(vertices_xy_m, dtype=np.float64)
+    closed = np.vstack((vertices, vertices[0]))
+    return float(np.linalg.norm(np.diff(closed, axis=0), axis=1).sum())
+
+
+def _segments_intersect(
+    first_start: NDArray[np.float64],
+    first_end: NDArray[np.float64],
+    second_start: NDArray[np.float64],
+    second_end: NDArray[np.float64],
+) -> bool:
+    epsilon = 1e-12
+
+    def orientation(
+        start: NDArray[np.float64],
+        end: NDArray[np.float64],
+        point: NDArray[np.float64],
+    ) -> float:
+        first = end - start
+        second = point - start
+        return float(first[0] * second[1] - first[1] * second[0])
+
+    def on_segment(
+        start: NDArray[np.float64],
+        end: NDArray[np.float64],
+        point: NDArray[np.float64],
+    ) -> bool:
+        return bool(
+            np.all(point >= np.minimum(start, end) - epsilon)
+            and np.all(point <= np.maximum(start, end) + epsilon)
+        )
+
+    first_a = orientation(first_start, first_end, second_start)
+    first_b = orientation(first_start, first_end, second_end)
+    second_a = orientation(second_start, second_end, first_start)
+    second_b = orientation(second_start, second_end, first_end)
+    if (
+        (first_a > epsilon and first_b < -epsilon)
+        or (first_a < -epsilon and first_b > epsilon)
+    ) and (
+        (second_a > epsilon and second_b < -epsilon)
+        or (second_a < -epsilon and second_b > epsilon)
+    ):
+        return True
+    return (
+        (abs(first_a) <= epsilon and on_segment(first_start, first_end, second_start))
+        or (abs(first_b) <= epsilon and on_segment(first_start, first_end, second_end))
+        or (abs(second_a) <= epsilon and on_segment(second_start, second_end, first_start))
+        or (abs(second_b) <= epsilon and on_segment(second_start, second_end, first_end))
+    )
 
 
 def _minimum_area_dimensions(

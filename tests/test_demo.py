@@ -33,6 +33,7 @@ def write_batch_summary(directory: Path, *, status: str = "ok") -> None:
                 "status": "succeeded" if not failed else "failed",
                 "floor_area_m2": 34.73 if not failed else None,
                 "area_is_provisional": True if not failed else None,
+                "outline_method": "convex_hull" if not failed else None,
                 "length_m": 7.44 if not failed else None,
                 "width_m": 6.59 if not failed else None,
                 "ceiling_height_m": None,
@@ -115,6 +116,7 @@ class DemoTests(unittest.TestCase):
         self.assertIn("--overwrite", commands[2])
         self.assertIn("DEMONSTRATION SUMMARY", output_text.getvalue())
         self.assertIn("34.73 m2 provisional", output_text.getvalue())
+        self.assertIn("convex_hull", output_text.getvalue())
 
     def test_partial_batch_prints_available_summary_and_returns_two(self) -> None:
         output_text = io.StringIO()

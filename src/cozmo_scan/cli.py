@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="reconstruct a capture and generate a measured floor plan",
         description=(
             "Reconstruct a LiDAR capture, detect structural planes, derive a "
-            "convex floor outline, and write CP03/CP04 diagnostic artifacts."
+            "supported floor outline, and write structural diagnostic artifacts."
         ),
     )
     measure_parser.add_argument(
@@ -324,11 +324,13 @@ def handle_measure(arguments: argparse.Namespace) -> int:
     plan = structure.summary.floor_plan
     print(f"Status: {structure.summary.status.upper()}")
     area_label = (
-        "Floor area (convex/provisional)"
-        if plan.convex_fill_ratio < structure.summary.config.minimum_boundary_fill_ratio
+        "Floor area (provisional)"
+        if plan.boundary_support_ratio
+        < structure.summary.config.minimum_boundary_fill_ratio
         else "Floor area"
     )
     print(f"{area_label}: {plan.area_m2:.2f} square metres")
+    print(f"Outline method: {plan.outline_method}")
     print(f"Principal dimensions: {plan.length_m:.2f} x {plan.width_m:.2f} metres")
     print(f"Perimeter: {plan.perimeter_m:.2f} metres")
     print(f"Detected walls: {len(structure.summary.walls)}")
@@ -367,14 +369,16 @@ def handle_run(arguments: argparse.Namespace) -> int:
     result = execution.result
     plan = result.room.floor_plan
     provisional = (
-        plan.convex_fill_ratio < result.config.structure.minimum_boundary_fill_ratio
+        plan.boundary_support_ratio
+        < result.config.structure.minimum_boundary_fill_ratio
     )
     print(f"Status: {result.status.upper()}")
     print(f"Input SHA-256: {result.input.sha256}")
     print(
-        f"Floor area{' (convex/provisional)' if provisional else ''}: "
+        f"Floor area{' (provisional)' if provisional else ''}: "
         f"{plan.area_m2:.2f} square metres"
     )
+    print(f"Outline method: {plan.outline_method}")
     print(f"Principal dimensions: {plan.length_m:.2f} x {plan.width_m:.2f} metres")
     print(f"Measurement confidence: {result.quality.measurement_confidence.upper()}")
     print(f"Total elapsed: {result.timings.total_seconds:.2f} seconds")

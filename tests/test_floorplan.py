@@ -15,10 +15,15 @@ from cozmo_scan.floorplan import (
     StructureError,
     analyze_structure,
     build_convex_outline,
+    build_occupancy_cells,
     classify_plane,
+    connected_occupancy_components,
     fit_plane_ransac,
+    is_simple_polygon,
     measure_polygon,
+    select_floor_outline,
     simplify_polygon,
+    trace_occupancy_boundary,
 )
 from cozmo_scan.models import StructureConfig
 from cozmo_scan.outputs import render_floorplan_png, render_floorplan_svg
@@ -94,6 +99,112 @@ class PolygonTests(unittest.TestCase):
         simplified = simplify_polygon(polygon, 0.02)
         self.assertEqual(len(simplified), 4)
 
+    def test_l_shaped_occupancy_produces_simple_concave_outline(self) -> None:
+        cells = {
+            (x, y)
+            for x in range(4)
+            for y in range(4)
+            if not (x >= 2 and y >= 2)
+        }
+        points = np.asarray(
+            [(x + 0.5, y + 0.5) for x, y in sorted(cells)], dtype=np.float64
+        )
+        config = StructureConfig(
+            boundary_grid_size_m=1.0,
+            boundary_close_radius_cells=0,
+            polygon_simplify_tolerance_m=0.0,
+            concave_simplify_tolerance_m=0.0,
+            minimum_concave_support_ratio=0.9,
+            minimum_concave_support_improvement=0.05,
+        )
+
+        selected = select_floor_outline(points, config)
+        measured = measure_polygon(
+            selected.vertices_xy_m,
+            supporting_cell_count=selected.supporting_cell_count,
+            occupied_cell_area_m2=selected.occupied_cell_area_m2,
+            outline_method=selected.method,
+        )
+
+        self.assertEqual(selected.method, "occupancy_concave")
+        self.assertTrue(is_simple_polygon(selected.vertices_xy_m))
+        self.assertEqual(len(selected.vertices_xy_m), 6)
+        self.assertAlmostEqual(measured.area_m2, 12.0)
+        self.assertAlmostEqual(selected.support_ratio, 1.0)
+
+    def test_u_shaped_occupancy_preserves_deep_recess(self) -> None:
+        cells = {
+            (x, y)
+            for x in range(5)
+            for y in range(5)
+            if y < 2 or x in (0, 4)
+        }
+        points = np.asarray(
+            [(x + 0.5, y + 0.5) for x, y in sorted(cells)], dtype=np.float64
+        )
+        config = StructureConfig(
+            boundary_grid_size_m=1.0,
+            boundary_close_radius_cells=0,
+            polygon_simplify_tolerance_m=0.0,
+            concave_simplify_tolerance_m=0.0,
+            minimum_concave_support_ratio=0.9,
+            minimum_concave_support_improvement=0.1,
+        )
+
+        selected = select_floor_outline(points, config)
+        measured = measure_polygon(
+            selected.vertices_xy_m,
+            supporting_cell_count=selected.supporting_cell_count,
+            occupied_cell_area_m2=selected.occupied_cell_area_m2,
+            outline_method=selected.method,
+        )
+
+        self.assertEqual(selected.method, "occupancy_concave")
+        self.assertTrue(is_simple_polygon(selected.vertices_xy_m))
+        self.assertAlmostEqual(measured.area_m2, 16.0)
+        self.assertLess(measured.area_m2, 25.0)
+
+    def test_disconnected_support_uses_convex_fallback(self) -> None:
+        cells = {
+            *((x, y) for x in range(4) for y in range(4)),
+            *((x + 8, y) for x in range(3) for y in range(3)),
+        }
+        points = np.asarray(
+            [(x + 0.5, y + 0.5) for x, y in sorted(cells)], dtype=np.float64
+        )
+        config = StructureConfig(
+            boundary_grid_size_m=1.0,
+            boundary_close_radius_cells=0,
+            polygon_simplify_tolerance_m=0.0,
+            minimum_component_cell_ratio=0.8,
+        )
+
+        selected = select_floor_outline(points, config)
+
+        self.assertEqual(selected.method, "convex_hull")
+        self.assertEqual(selected.connected_component_count, 2)
+        self.assertIn("largest component retains", selected.fallback_reason or "")
+
+    def test_components_and_polygon_validity_are_deterministic(self) -> None:
+        cells = {(0, 0), (1, 0), (5, 5), (5, 6)}
+        first = connected_occupancy_components(cells)
+        second = connected_occupancy_components(set(reversed(sorted(cells))))
+        outline = trace_occupancy_boundary(set(first[0]), 1.0)
+
+        self.assertEqual(first, second)
+        self.assertTrue(is_simple_polygon(outline))
+        self.assertFalse(
+            is_simple_polygon(
+                np.asarray([[0.0, 0.0], [2.0, 2.0], [0.0, 2.0], [2.0, 0.0]])
+            )
+        )
+        self.assertEqual(
+            build_occupancy_cells(
+                np.asarray([[0.5, 0.5], [1.5, 0.5], [1.5, 0.5]]), 1.0
+            ),
+            {(0, 0), (1, 0)},
+        )
+
 
 class StructurePipelineTests(unittest.TestCase):
     def test_synthetic_room_yields_floor_ceiling_walls_and_measurements(self) -> None:
@@ -106,6 +217,17 @@ class StructurePipelineTests(unittest.TestCase):
         self.assertAlmostEqual(result.summary.floor_plan.area_m2, 12.0, delta=1.0)
         self.assertAlmostEqual(result.summary.floor_plan.length_m, 4.0, delta=0.2)
         self.assertAlmostEqual(result.summary.floor_plan.width_m, 3.0, delta=0.2)
+        self.assertIn(
+            result.summary.floor_plan.outline_method,
+            {"convex_hull", "occupancy_concave"},
+        )
+        self.assertEqual(
+            result.summary.floor_plan.boundary_support_ratio,
+            result.summary.floor_plan.convex_fill_ratio,
+        )
+        self.assertIn(
+            "boundary_support_ratio", result.summary.floor_plan.model_dump()
+        )
 
     def test_missing_ceiling_remains_null_with_warning(self) -> None:
         result = analyze_structure(make_synthetic_room(include_ceiling=False))
@@ -133,7 +255,9 @@ class StructurePipelineTests(unittest.TestCase):
             render_floorplan_svg(svg_path, result.summary)
             render_floorplan_png(png_path, result.summary)
 
-            self.assertIn("Measured floor plan", svg_path.read_text(encoding="utf-8"))
+            svg = svg_path.read_text(encoding="utf-8")
+            self.assertIn("Measured floor plan", svg)
+            self.assertIn("Convex safety fallback", svg)
             ElementTree.parse(svg_path)
             with Image.open(png_path) as image:
                 self.assertEqual(image.format, "PNG")

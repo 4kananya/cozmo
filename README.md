@@ -6,7 +6,7 @@ The project was built as a checkpoint-gated assessment. The detailed scope, audi
 
 ## Current status
 
-The seven baseline delivery checkpoints are complete. CP08 adds a ground-truth benchmark and compliance evaluator without changing the frozen reconstruction mathematics. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, run the same configuration across a directory, and score published results when independent measurements are provided.
+The seven baseline delivery checkpoints are complete. CP08 adds a ground-truth benchmark and compliance evaluator. CP09 adds a component-aware concave floor outline with strict topology/support gates and the prior convex method retained as a safety fallback. The CLI can validate, reconstruct, measure, produce a reviewer-ready single-capture result, run the same configuration across a directory, and score published results when independent measurements are provided.
 
 ## Architecture
 
@@ -164,11 +164,11 @@ The measurement directory contains the three reconstruction artifacts above plus
 - `floorplan.svg`: scalable measured floor-plan drawing;
 - `floorplan.png`: reviewer-friendly preview with edge dimensions, scale bar, wall-direction markers, and quality evidence.
 
-CP04 finds the floor relative to the recorded camera trajectory, fits horizontal planes with fixed-seed RANSAC, detects vertical walls with X-Z line RANSAC, projects floor evidence into a local metric frame, filters isolated occupancy cells, and measures a simplified convex hull. A ceiling is returned only when its support, span, orientation, and height are credible; otherwise both the ceiling plane and height remain `null`.
+The structural stage finds the floor relative to the recorded camera trajectory, fits horizontal planes with fixed-seed RANSAC, detects vertical walls with X-Z line RANSAC, and projects floor evidence into a local metric frame. CP09 quantizes that evidence to an occupancy grid, closes only one-cell gaps, finds deterministic connected components, traces the largest outer contour, simplifies it, and verifies that it remains a simple polygon.
 
-The floor polygon is deliberately a convex baseline. `convex_fill_ratio` reports how much of its area is backed by occupied floor cells. When that ratio is below the configured threshold, the CLI and drawing label area as provisional and warn that the hull may bridge concave or unscanned regions. These values are internal geometric estimates, not accuracy claims against ground truth.
+The occupancy contour is accepted only when it retains at least 80% of occupied cells, has at least 55% direct occupied support, improves support over the occupancy convex hull by at least 8 percentage points, has no more than 36 simplified vertices, and does not inflate perimeter beyond 1.5 times the convex perimeter. Weak, fragmented, self-intersecting, unsupported, or overly complex contours use the previous convex hull and record the exact fallback reason. The legacy JSON field `convex_fill_ratio` is retained for compatibility; `boundary_support_ratio` is its clearer serialized alias for either outline method.
 
-The audited `single_room.zip` fast run found a near-horizontal floor with 14,640 inliers, 20.6% cloud support, and 1.6 cm fit RMSE. It found six supported vertical planes and no credible ceiling. Its convex outline is approximately 7.44 x 6.59 m and 34.73 m², but occupied support is only 46.8%; the area is therefore explicitly reported as provisional rather than as a certified room measurement.
+The audited `single_room.zip` fast run still finds the same floor, wall planes, and missing-ceiling outcome. Its CP09 contour retains 95.7% of occupied cells, has 94.9% direct support, and measures approximately 8.07 x 4.55 m, 16.40 m², with 27 simplified vertices. This is substantially better supported than the old 34.73 m² convex hull, but it is still an internal occupancy estimate—not proof of absolute accuracy without independent room measurements.
 
 ## Generate the complete result bundle
 
@@ -194,6 +194,8 @@ The final output is staged before publication. Existing known artifacts require 
 
 The final schema explicitly marks unsupported features such as photo-only reconstruction, damage detection, concealed-condition prediction, repair-scope generation, and live mobile processing as `not_implemented`; ground-truth accuracy and multi-room stitching are `not_evaluated`. Missing measurements remain `null`.
 
+CP09 publishes result/structure/batch schema `1.1.0`, adding outline method, component retention, discarded-cell count, fallback reason, and `boundary_support_ratio`. Readers remain backward-compatible with the CP07/CP08 `1.0.0` artifacts.
+
 ## Run every supplied capture
 
 The batch command discovers top-level ZIPs and valid capture directories, orders them deterministically, and reuses the unchanged final pipeline sequentially:
@@ -207,13 +209,13 @@ python -m cozmo_scan batch `
 
 The output root contains `batch.json`, `batch-report.md`, and one named directory per capture containing the same seven artifacts produced by `run`. One effective configuration is shared by every capture. Known output collisions are rejected before processing starts unless `--overwrite` is supplied; unrelated files are preserved. An expected failure in one capture is recorded and later captures still run. The command returns `0` only when every capture succeeds and `2` for a partial or fully failed batch.
 
-The audited frozen-profile run completed all three supplied archives. All three outlines are explicitly provisional because convex occupied support is below 60%:
+The audited frozen-profile run completed all three supplied archives. CP09 accepts the supported contour only for `single_room`; the other two candidates remain too complex and therefore use the unchanged convex safety fallback:
 
-| Capture | Points | Convex area | Dimensions | Walls | Ceiling | Occupied support |
-|---|---:|---:|---:|---:|---:|---:|
-| `single_room.zip` | 70,928 | 34.73 m² | 7.44 × 6.59 m | 6 | unavailable | 46.8% |
-| `single_scan_floor_only.zip` | 171,537 | 78.23 m² | 10.88 × 9.44 m | 6 | unavailable | 57.4% |
-| `single_scan_with_ceiling.zip` | 242,402 | 85.80 m² | 12.40 × 9.28 m | 6 | 2.40 m | 48.5% |
+| Capture | Points | Outline | Area | Dimensions | Walls | Ceiling | Occupied support |
+|---|---:|---|---:|---:|---:|---:|---:|
+| `single_room.zip` | 70,928 | occupancy concave | 16.40 m² | 8.07 × 4.55 m | 6 | unavailable | 94.9% |
+| `single_scan_floor_only.zip` | 171,537 | convex fallback | 78.23 m² provisional | 10.88 × 9.44 m | 6 | unavailable | 57.4% |
+| `single_scan_with_ceiling.zip` | 242,402 | convex fallback | 85.80 m² provisional | 12.40 × 9.28 m | 6 | 2.40 m | 48.5% |
 
 These are internal geometric estimates, not ground-truth accuracy claims. In particular, the floor-only capture remains honestly nullable rather than receiving an inferred ceiling.
 

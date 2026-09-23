@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -329,10 +330,12 @@ def write_report(path: str | Path, result: RunResult) -> None:
     """Write a self-contained Markdown report for a human reviewer."""
     plan = result.room.floor_plan
     area_label = (
-        "Convex floor area (provisional)"
-        if plan.convex_fill_ratio < result.config.structure.minimum_boundary_fill_ratio
+        "Floor area (provisional)"
+        if plan.boundary_support_ratio
+        < result.config.structure.minimum_boundary_fill_ratio
         else "Floor area"
     )
+    outline_label = _outline_method_label(plan.outline_method)
     ceiling = (
         "Not available — no ceiling plane passed the evidence checks."
         if result.room.ceiling_height_m is None
@@ -392,6 +395,7 @@ This is an offline geometric estimate from the supplied LiDAR depth, confidence,
 | Ceiling height | {ceiling} |
 | Detected wall planes | {len(result.room.walls)} |
 | Polygon vertices | {len(plan.vertices_xy_m)} |
+| Outline method | {outline_label} |
 
 ## Quality evidence
 
@@ -402,7 +406,10 @@ This is an offline geometric estimate from the supplied LiDAR depth, confidence,
 | Floor support | {result.quality.floor_inlier_ratio:.1%} |
 | Floor-plane RMSE | {result.quality.floor_rmse_m:.3f} m |
 | Floor/world-up alignment | {result.quality.floor_world_up_alignment:.5f} |
-| Occupied support inside convex outline | {result.quality.boundary_fill_ratio:.1%} |
+| Occupied support inside selected outline | {result.quality.boundary_fill_ratio:.1%} |
+| Connected occupancy components | {plan.connected_component_count} |
+| Retained component support | {plan.retained_component_ratio:.1%} |
+| Discarded occupied cells | {plan.discarded_cell_count} |
 | Camera path length | {_optional_metres(result.reconstruction.trajectory_path_length_m)} |
 | Start-to-end distance | {_optional_metres(result.quality.closure_proxy_m)} |
 
@@ -420,7 +427,7 @@ The start-to-end value is only a closure proxy. It is **not certified drift** an
 
 ## Method
 
-The pipeline validates the capture, selects deterministic keyframes, filters depth by confidence and range, scales camera intrinsics to the depth resolution, back-projects metric points, transforms them with recorded camera-to-world poses, and voxel-downsamples the fused cloud. It then detects a camera-relative floor, an optional evidence-supported ceiling, and gravity-aligned wall planes. Floor inliers are projected to a local frame, isolated occupancy cells are removed, and a simplified convex hull is measured and rendered.
+The pipeline validates the capture, selects deterministic keyframes, filters depth by confidence and range, scales camera intrinsics to the depth resolution, back-projects metric points, transforms them with recorded camera-to-world poses, and voxel-downsamples the fused cloud. It then detects a camera-relative floor, an optional evidence-supported ceiling, and gravity-aligned wall planes. Floor inliers are projected to a local occupancy grid. A cleaned, simple concave contour is used only when component retention and support improve over the occupancy convex hull; otherwise the prior convex boundary remains the safety fallback.
 
 ## Assignment capability coverage
 
@@ -430,7 +437,7 @@ The pipeline validates the capture, selects deterministic keyframes, filters dep
 
 ## Limitations
 
-- The floor boundary is convex and can bridge concave or unscanned regions.
+- Occupancy contours can follow unscanned gaps; weak, fragmented, invalid, or overly complex contours fall back to a convex boundary that can overfill concavity.
 - Measurements are internal geometric estimates; absolute accuracy was not evaluated because no reference dimensions were supplied.
 - Furniture, reflective surfaces, pose error, incomplete coverage, and LiDAR noise can affect the result.
 - Missing evidence remains unavailable rather than being replaced with zero or an invented value.
@@ -563,7 +570,10 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
     )
     centroid = pixels.mean(axis=0)
     edge_labels: list[str] = []
+    label_indices = _dimension_label_indices(summary.floor_plan.edge_lengths_m)
     for index, length in enumerate(summary.floor_plan.edge_lengths_m):
+        if index not in label_indices:
+            continue
         start = pixels[index]
         end = pixels[(index + 1) % len(pixels)]
         midpoint = (start + end) / 2
@@ -584,7 +594,7 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
     warning = escape(summary.warnings[0]) if summary.warnings else "None"
     area_label = (
         "Floor area (provisional)"
-        if summary.floor_plan.convex_fill_ratio < summary.config.minimum_boundary_fill_ratio
+        if summary.floor_plan.boundary_support_ratio < summary.config.minimum_boundary_fill_ratio
         else "Floor area"
     )
     wall_lines = "".join(
@@ -624,9 +634,9 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
   <text x="900" y="393" class="value">{ceiling_text}</text>
   <text x="900" y="445" class="label">Detected walls</text>
   <text x="900" y="473" class="value">{len(summary.walls)}</text>
-  <text x="900" y="535" class="note">Convex measured outline</text>
+  <text x="900" y="535" class="note">{_outline_method_label(summary.floor_plan.outline_method)}</text>
   <text x="900" y="560" class="note">Units: metres</text>
-  <text x="900" y="585" class="note">Occupied support: {summary.floor_plan.convex_fill_ratio:.1%}</text>
+  <text x="900" y="585" class="note">Occupied support: {summary.floor_plan.boundary_support_ratio:.1%}</text>
   <text x="900" y="605" class="note">Teal markers: detected wall direction</text>
   <text x="900" y="625" class="note">{warning[:42]}</text>
   <text x="900" y="645" class="note">{warning[42:84]}</text>
@@ -691,7 +701,10 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
         font=dimension_font,
     )
     centroid = pixels_array.mean(axis=0)
+    label_indices = _dimension_label_indices(summary.floor_plan.edge_lengths_m)
     for index, length in enumerate(summary.floor_plan.edge_lengths_m):
+        if index not in label_indices:
+            continue
         start = pixels_array[index]
         end = pixels_array[(index + 1) % len(pixels_array)]
         midpoint = (start + end) / 2
@@ -726,7 +739,7 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
         (panel_x, 155),
         (
             f"Area (provisional): {summary.floor_plan.area_m2:.2f} m2"
-            if summary.floor_plan.convex_fill_ratio
+            if summary.floor_plan.boundary_support_ratio
             < summary.config.minimum_boundary_fill_ratio
             else f"Area: {summary.floor_plan.area_m2:.2f} m2"
         ),
@@ -758,7 +771,7 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
     )
     drawing.text(
         (panel_x, 335),
-        "Convex approximation",
+        _outline_method_label(summary.floor_plan.outline_method),
         fill=(100, 116, 139),
         font=note_font,
     )
@@ -767,7 +780,7 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
     )
     drawing.text(
         (panel_x, 385),
-        f"Occupied support: {summary.floor_plan.convex_fill_ratio:.1%}",
+        f"Occupied support: {summary.floor_plan.boundary_support_ratio:.1%}",
         fill=(100, 116, 139),
         font=note_font,
     )
@@ -804,6 +817,25 @@ def _floorplan_pixels(
         height=height,
         panel_width=panel_width,
     )
+
+
+def _dimension_label_indices(edge_lengths_m: tuple[float, ...]) -> set[int]:
+    """Keep drawings readable while all edge lengths remain available in JSON."""
+    if len(edge_lengths_m) <= 12:
+        return set(range(len(edge_lengths_m)))
+    significant = [
+        index for index, length in enumerate(edge_lengths_m) if length >= 0.50
+    ]
+    significant.sort(key=lambda index: (-edge_lengths_m[index], index))
+    return set(significant[:14])
+
+
+def _outline_method_label(
+    method: Literal["convex_hull", "occupancy_concave"],
+) -> str:
+    if method == "occupancy_concave":
+        return "Occupancy-supported concave outline"
+    return "Convex safety fallback"
 
 
 def _transform_floorplan_points(

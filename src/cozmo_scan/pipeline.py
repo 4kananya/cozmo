@@ -78,7 +78,7 @@ FINAL_ARTIFACT_RECORDS = (
         key="floorplan_vector",
         filename=FLOORPLAN_SVG_FILENAME,
         media_type="image/svg+xml",
-        description="Scalable measured convex floor-plan drawing.",
+        description="Scalable measured floor-plan drawing with outline-method evidence.",
     ),
     ArtifactRecord(
         key="floorplan_preview",
@@ -250,7 +250,7 @@ def build_quality_metrics(
     floor = structure.summary.floor
     floor_normal = np.asarray(floor.normal_xyz, dtype=np.float64)
     alignment = abs(float(floor_normal @ np.asarray([0.0, 1.0, 0.0])))
-    boundary_fill = structure.summary.floor_plan.convex_fill_ratio
+    boundary_fill = structure.summary.floor_plan.boundary_support_ratio
     caution = bool(warnings) or (
         boundary_fill < config.structure.minimum_boundary_fill_ratio
     )
@@ -294,7 +294,10 @@ def build_capability_assessments(
         _capability(
             "measured_floor_plan",
             CapabilityStatus.SUPPORTED_WITH_LIMITATIONS,
-            "Produces a measured convex boundary; concave or unscanned regions may be overfilled.",
+            (
+                "Produces a component-aware occupancy contour when it passes support "
+                "and topology checks, with an explicit convex safety fallback."
+            ),
         ),
         _capability(
             "ceiling_measurement",

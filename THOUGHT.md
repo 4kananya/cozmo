@@ -418,7 +418,7 @@ No checkpoint may be implemented merely because the preceding checkpoint passed.
 | **CP06 — All-sample batch validation** | Prove the same pipeline and frozen profile work across all three supplied captures. | `discover_captures()`; `run_batch()`; `summarize_runs()`; `write_batch_outputs()`; `batch` CLI command; regression fixes that remain general. | Per-scan artifact bundles plus combined JSON/Markdown summary of runtime, geometry, measurements, quality, warnings, and failures. | All three runs finish without source changes; parameters are shared or overrides are disclosed; floor-only data handles missing ceiling correctly; full tests pass. | **Complete — audited 2026-09-22** |
 | **CP07 — Submission and demonstration** | Make the project reproducible, explainable, and ready for assessor review. | Final README; setup/run commands; architecture and method documentation; schema/limitations; assignment coverage; demo script; clean-environment verification; dependency, secret, path, and Git audit. No new algorithm. | Submission-ready repository with reproducibility evidence and a short repeatable demonstration flow. | Clean install, tests, and sample commands succeed; tracked files are appropriate; claims match evidence; outputs are inspectable; delivery buffer remains. | **Complete — audited 2026-09-22** |
 | **CP08 — Ground-truth benchmark and compliance evaluator** | Add an honest scoring layer over existing results without changing reconstruction mathematics. | Ground-truth manifest models; result/truth matching; absolute and percentage errors; assignment-gate evaluation; repeatability checks; confidence-interval coverage; compliance matrix; `evaluate` CLI command. | `evaluation.json`, `evaluation-report.md`, and `compliance-matrix.md` generated from a real measurement manifest and an existing batch run. | Synthetic truth tests pass; missing/phantom measurements are counted rather than hidden; unsupported gates remain `not_evaluated`; no sample measurements are fabricated; CP01–CP07 regressions pass. | **Complete — audited 2026-09-23** |
-| **CP09 — Floor-plan 2.0: concavity and room segmentation** | Replace the knowingly overfilled convex outline when scan support is sufficient, while preserving the safe fallback. | Occupancy-grid cleanup; connected components; contour tracing; topology validation; concave polygon simplification; optional room-region segmentation; before/after support metrics. | More faithful concave floor outlines and explicit fallback evidence in the existing artifact contract. | Synthetic L/U-shaped tests pass; polygons are simple and deterministic; real support improves without unstable slivers; convex fallback still works. | **Proposed — approval required** |
+| **CP09 — Floor-plan 2.0: concavity and room segmentation** | Replace the knowingly overfilled convex outline when scan support is sufficient, while preserving the safe fallback. | Occupancy-grid cleanup; connected components; contour tracing; topology validation; concave polygon simplification; optional room-region segmentation; before/after support metrics. | More faithful concave floor outlines and explicit fallback evidence in the existing artifact contract. | Synthetic L/U-shaped tests pass; polygons are simple and deterministic; real support improves without unstable slivers; convex fallback still works. | **Complete — audited 2026-09-23** |
 | **CP10 — Openings and adjacency** | Detect and represent doors/windows/open wall transitions so the plan covers the assignment's opening requirements. | Wall-aligned evidence profiles; opening proposal/filtering; width measurement; missed/phantom-ready IDs; wall/opening schema; adjacency graph; renderer/report updates. | Named openings with widths, confidence/evidence, and room adjacency in JSON and plans. | Synthetic openings are measured within tolerance; weak evidence returns unavailable rather than a guess; CP08 can score named openings including phantoms. | **Proposed — approval required** |
 | **CP11 — Drift correction and ablation** | Add a bounded optional correction pass and prove whether it improves results compared with recorded poses as-is. | Overlap selection; lightweight pose/point alignment; correction acceptance gate; raw/corrected dual run; residual/closure/repeatability comparison; ablation report. | Explicit drift-correction-on/off benchmark evidence with automatic rollback when correction is worse. | Synthetic perturbation is improved; unchanged good poses remain stable; real-data ablation is reproducible; no accuracy claim is made without ground truth. | **Proposed — approval required** |
 
@@ -530,14 +530,16 @@ The table is the high-level control board. The sections below are the authoritat
 
 ### CP09 — Floor-plan 2.0: concavity and room segmentation (2–4 hours)
 
-- [ ] Build a cleaned floor-occupancy mask from existing projected support.
-- [ ] Trace deterministic outer and inner contours and reject invalid/self-intersecting polygons.
-- [ ] Simplify while protecting corners and narrow transitions.
-- [ ] Segment credible connected room regions only when evidence supports more than one.
-- [ ] Compare supported-area ratio and topology against the convex baseline.
-- [ ] Preserve the convex hull as an explicit fallback.
+- [x] Build a cleaned floor-occupancy mask from existing projected support.
+- [x] Trace deterministic outer contours and reject invalid/self-intersecting polygons; treat inner holes as unsupported area rather than emitting unsupported room topology.
+- [x] Simplify while protecting topology, support, corners, and credible recesses.
+- [x] Count and retain connected-component evidence; explicitly avoid labelling scan fragments as rooms without wall/opening adjacency evidence.
+- [x] Compare occupied support, component retention, perimeter, complexity, and topology against the convex baseline.
+- [x] Preserve the convex hull as an explicit fallback with the rejection reason in JSON/report warnings.
 
 **Gate:** no implementation before a separate checkpoint overview and explicit approval. Do not replace a stable convex result with a visually attractive but topologically invalid contour.
+
+**Completion evidence (2026-09-23):** 101 tests pass. New synthetic tests cover exact L- and U-shaped occupancy area, a deep recess, deterministic four-neighbour components, disconnected-evidence fallback, simple-polygon validation, self-intersection rejection, and serialized outline evidence. A candidate must retain at least 80% of occupied cells, achieve at least 55% direct support, improve support by 8 percentage points over the occupancy convex hull, stay at or below 36 vertices, keep perimeter at or below 1.5 times the convex perimeter, and remain simple; otherwise the old convex result is used. The frozen `fast` profile completed all three supplied scans: `single_room` accepted a 27-vertex occupancy contour measuring 16.40 m² with 94.9% support and 95.7% component retention; `single_scan_floor_only` retained its 78.23 m² convex fallback because the simplified candidate still had 63 vertices; `single_scan_with_ceiling` retained its 85.80 m² fallback because the candidate had 57 vertices. All three plans were visually inspected. Two independent batches produced byte-identical PLY/SVG/PNG/Markdown artifacts and equivalent result/batch JSON after removing only durations. New structure/result/batch artifacts use schema `1.1.0`, while the CP08 loader successfully parsed all three existing real `1.0.0` results. The complete reviewer demo succeeded and prints each outline method. No dependency was added and multi-room stitching/semantic room segmentation remains explicitly unsupported.
 
 ### CP10 — Openings and adjacency (2–4 hours)
 
@@ -565,7 +567,7 @@ The table is the high-level control board. The sections below are the authoritat
 
 Do these in order. Stop whenever the remaining deadline buffer would fall below two hours.
 
-1. Improve the floor outline from a convex hull to an occupancy-grid/concave boundary while preserving the hull fallback.
+1. **Completed in CP09:** improve the floor outline from a convex hull to an occupancy-grid/concave boundary while preserving the hull fallback.
 2. Add lightweight sequential point-to-plane ICP and compare it against raw ARKit poses; keep it only if measurable plane residual or overlap improves.
 3. Add Manhattan/orthogonal wall snapping when data supports it, with before/after quality evidence.
 4. Add a small static HTML index that links existing artifacts; do not build a web application.
@@ -1079,3 +1081,57 @@ Entry template:
 - Evidence/reasoning: Passing one numerical ceiling or opening check cannot prove that the required benchmark design was followed. The real-artifact smoke report correctly warns about missing tiers and repeats even though all three result files load.
 - Consequences: `Declared`, `not met`, `not evaluated`, and implementation statuses remain distinct. Damage and other unbuilt features cannot disappear behind a geometry score.
 - Revisit when: New prediction/annotation schemas make the missing protocol rows objectively evaluable.
+
+### D-050 — Accept concavity only through an evidence gate
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Quantize the already accepted floor inliers, close only one-cell gaps, find deterministic four-neighbour components, trace exposed grid-cell edges, simplify the largest outer contour, and use it only if it is simple and improves occupied support. Preserve the CP04 convex hull as the fallback.
+- Evidence/reasoning: Dense synthetic L and U rooms recover their exact 12 m² and 16 m² occupancy areas with valid concave polygons. Disconnected support and invalid/overly complex candidates return a reasoned fallback rather than an attractive guess.
+- Consequences: CP09 adds no second point-cloud or plane path. Every accepted/fallback result shares the same upstream floor evidence and public measurement function.
+- Revisit when: A wall/opening topology supplies a stronger boundary constraint than floor occupancy alone.
+
+### D-051 — Bound concave contours by retention, support, perimeter, and complexity
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Require at least 80% occupied-cell retention, 55% direct boundary support, an 8-percentage-point support improvement over the occupancy convex hull, no more than 36 simplified vertices, perimeter no more than 1.5 times the convex perimeter, and a simple counter-clockwise polygon. Use a separate 0.24 m concave simplification tolerance while retaining the 0.08 m convex tolerance.
+- Evidence/reasoning: The first real contour had 80 vertices and an unreadable 34.28 m labelled perimeter despite 97.5% support. The stricter simplification produces a readable 27-vertex plan with 94.9% support; increasing simplification to 0.32 m did not make the other two scans defensible, so their fallbacks remain.
+- Consequences: Strong support alone cannot pass a jagged plan. JSON preserves the selected method, component count, retention, discarded cells, support alias, and exact fallback reason.
+- Revisit when: Ground-truth boundaries allow these conservative thresholds to be tuned objectively instead of visually.
+
+### D-052 — Do not call occupancy components rooms
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Record connected-component evidence and select one defensible outer contour, but do not label disconnected floor fragments as semantic rooms or claim multi-room segmentation/stitching.
+- Evidence/reasoning: The real scans contain 3, 4, and 14 cleaned components, yet the largest `single_room` component retains 95.7% of the original occupied cells. Small components can be noise, disconnected scan support, or another region; floor occupancy alone cannot distinguish them.
+- Consequences: CP09 improves one published outline without inventing room identities. CP10 wall/opening adjacency is the next prerequisite for semantic segmentation.
+- Revisit when: Stable wall segments, openings, and adjacency produce objective room-enclosure evidence.
+
+### D-053 — Publish additive outline evidence as schema 1.1
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Emit structure, final-result, and batch schema `1.1.0` with additive outline fields while accepting both `1.0.0` and `1.1.0` when reading existing artifacts. Retain `convex_fill_ratio` for compatibility and serialize `boundary_support_ratio` as its clearer method-neutral alias.
+- Evidence/reasoning: CP09 changes numerical output meaning and adds method/fallback evidence, so silently calling it the same schema would be misleading. The CP08 loader parsed all three real CP07 `1.0.0` results and all three CP09 `1.1.0` results.
+- Consequences: Old artifacts remain evaluable. New consumers should prefer `boundary_support_ratio` and inspect `outline_method` before interpreting area.
+- Revisit when: A topology graph or multiple room polygons requires a non-additive 2.0 schema.
+
+### D-054 — Keep detailed edges in JSON but limit drawing labels
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: Preserve every polygon edge and length in machine-readable output, but when a plan has more than 12 edges render at most the 14 longest edges of at least 0.50 m as dimension labels.
+- Evidence/reasoning: Labelling all 80 edges made the first real CP09 preview unreadable. The final 27-vertex `single_room` drawing remains inspectable while JSON retains every value.
+- Consequences: The drawing is a reviewer view rather than the sole measurement record. Short-edge omission from the image is not data loss.
+- Revisit when: An interactive layer or collision-aware label placement replaces the static renderer.
+
+### D-055 — Keep mixed accepted/fallback behavior across the supplied scans
+
+- Date: 2026-09-23
+- Status: accepted
+- Decision: With one frozen configuration, accept the 16.40 m²/94.9%-supported `single_room` contour and retain the existing convex results for floor-only and with-ceiling because their simplified candidates exceed the 36-vertex cap. Do not relax the cap per sample.
+- Evidence/reasoning: All three scans complete with shared parameters. The two rejected candidates still contain 63 and 57 vertices at 0.24 m simplification and remain 58 and 47 vertices at 0.32 m; stronger global simplification makes the first plan only marginally smaller and does not rescue the others.
+- Consequences: Cross-sample output is intentionally mixed and carries explicit method/fallback evidence. The lower `single_room` area is described as better supported, not ground-truth accurate.
+- Revisit when: Independent measured room boundaries show whether a rejected candidate or alternative contour is more accurate.

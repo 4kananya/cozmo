@@ -260,6 +260,13 @@ class StructureConfig(FrozenModel):
     boundary_grid_size_m: float = Field(default=0.08, gt=0)
     boundary_trim_percentile: float = Field(default=0.5, ge=0, lt=25)
     polygon_simplify_tolerance_m: float = Field(default=0.08, ge=0)
+    concave_simplify_tolerance_m: float = Field(default=0.24, ge=0)
+    boundary_close_radius_cells: int = Field(default=1, ge=0, le=3)
+    minimum_component_cell_ratio: float = Field(default=0.80, gt=0, le=1)
+    minimum_concave_support_ratio: float = Field(default=0.55, gt=0, le=1)
+    minimum_concave_support_improvement: float = Field(default=0.08, ge=0, le=1)
+    maximum_concave_perimeter_ratio: float = Field(default=1.50, ge=1)
+    maximum_concave_vertices: int = Field(default=36, ge=4, le=500)
     minimum_boundary_fill_ratio: float = Field(default=0.60, gt=0, le=1)
     floor_rmse_warning_m: float = Field(default=0.03, gt=0)
     floor_inlier_ratio_warning: float = Field(default=0.05, gt=0, le=1)
@@ -300,7 +307,7 @@ class FloorCoordinateSystem(FrozenModel):
 
 
 class FloorPlanMeasurement(FrozenModel):
-    """Measured convex floor boundary in floor-local metres."""
+    """Measured floor boundary in floor-local metres with selection evidence."""
 
     vertices_xy_m: tuple[tuple[float, float], ...]
     edge_lengths_m: tuple[float, ...]
@@ -311,13 +318,26 @@ class FloorPlanMeasurement(FrozenModel):
     principal_angle_deg: float
     supporting_cell_count: int = Field(gt=0)
     occupied_cell_area_m2: float = Field(gt=0)
+    # Kept for 1.0 contract compatibility. For either method this is the
+    # occupied-cell area divided by the selected outline area.
     convex_fill_ratio: float = Field(gt=0, le=1)
+    outline_method: Literal["convex_hull", "occupancy_concave"] = "convex_hull"
+    connected_component_count: int = Field(default=1, ge=1)
+    retained_component_ratio: float = Field(default=1.0, gt=0, le=1)
+    discarded_cell_count: int = Field(default=0, ge=0)
+    fallback_reason: str | None = None
+
+    @computed_field
+    @property
+    def boundary_support_ratio(self) -> float:
+        """Return occupied support for the selected outline."""
+        return self.convex_fill_ratio
 
 
 class StructureSummary(FrozenModel):
     """Machine-readable CP04 structural geometry and measurement result."""
 
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    schema_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
     status: Literal["ok", "ok_with_warnings"]
     units: Literal["metre"] = "metre"
     source: str
@@ -435,7 +455,7 @@ class RoomResult(FrozenModel):
 class RunResult(FrozenModel):
     """Versioned, reviewer-facing product result for one capture."""
 
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    schema_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
     product: Literal["cozmo-scan"] = "cozmo-scan"
     status: Literal["ok", "ok_with_warnings"]
     units: Literal["metre"] = "metre"
@@ -462,6 +482,7 @@ class BatchItemResult(FrozenModel):
     output_point_count: int | None = Field(default=None, ge=0)
     floor_area_m2: float | None = Field(default=None, gt=0)
     area_is_provisional: bool | None = None
+    outline_method: Literal["convex_hull", "occupancy_concave"] | None = None
     length_m: float | None = Field(default=None, gt=0)
     width_m: float | None = Field(default=None, gt=0)
     perimeter_m: float | None = Field(default=None, gt=0)
@@ -510,7 +531,7 @@ class BatchItemResult(FrozenModel):
 class BatchSummary(FrozenModel):
     """Versioned cross-capture outcome from one sequential batch run."""
 
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    schema_version: Literal["1.0.0", "1.1.0"] = "1.1.0"
     product: Literal["cozmo-scan-batch"] = "cozmo-scan-batch"
     status: Literal["ok", "partial", "failed"]
     input_name: str

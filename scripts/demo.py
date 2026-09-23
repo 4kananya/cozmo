@@ -120,8 +120,8 @@ def print_batch_summary(summary: dict[str, object], output_directory: Path) -> N
     print(f"Succeeded: {summary['succeeded_count']}")
     print(f"Failed: {summary['failed_count']}")
     print("")
-    print("Capture | Status | Area | Dimensions | Ceiling | Confidence")
-    print("-" * 78)
+    print("Capture | Status | Outline | Area | Dimensions | Ceiling | Confidence")
+    print("-" * 98)
     items = summary["items"]
     assert isinstance(items, list)
     for raw_item in items:
@@ -129,6 +129,7 @@ def print_batch_summary(summary: dict[str, object], output_directory: Path) -> N
             raise DemoError("Batch evidence contains a non-object item")
         name = str(raw_item.get("input_name", "unknown"))
         status = str(raw_item.get("status", "unknown"))
+        outline = str(raw_item.get("outline_method") or "n/a")
         area = _measurement(raw_item.get("floor_area_m2"), "m2")
         if raw_item.get("area_is_provisional") is True:
             area += " provisional"
@@ -139,7 +140,7 @@ def print_batch_summary(summary: dict[str, object], output_directory: Path) -> N
         ceiling = _measurement(raw_item.get("ceiling_height_m"), "m")
         confidence = str(raw_item.get("measurement_confidence") or "n/a")
         print(
-            f"{name} | {status} | {area} | {dimensions} | "
+            f"{name} | {status} | {outline} | {area} | {dimensions} | "
             f"{ceiling} | {confidence}"
         )
     print("")
