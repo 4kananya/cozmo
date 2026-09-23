@@ -354,6 +354,8 @@ def write_report(path: str | Path, result: RunResult) -> None:
         f"| `{item.filename}` | {item.description} |"
         for item in result.artifacts.artifacts
     )
+    openings_section = _render_openings_section(result)
+    intervals_section = _render_intervals_section(result)
     inventory = result.input.inventory
     report = f"""# Cozmo Scan Result
 
@@ -394,8 +396,18 @@ This is an offline geometric estimate from the supplied LiDAR depth, confidence,
 | Perimeter | {plan.perimeter_m:.2f} m |
 | Ceiling height | {ceiling} |
 | Detected wall planes | {len(result.room.walls)} |
+| Identified wall segments | {_identified_wall_count(result)} |
+| Openings published | {_opening_count(result)} |
 | Polygon vertices | {len(plan.vertices_xy_m)} |
 | Outline method | {outline_label} |
+
+### Openings and adjacency
+
+{openings_section}
+
+## Measurement intervals
+
+{intervals_section}
 
 ## Quality evidence
 
@@ -429,6 +441,8 @@ The start-to-end value is only a closure proxy. It is **not certified drift** an
 
 The pipeline validates the capture, selects deterministic keyframes, filters depth by confidence and range, scales camera intrinsics to the depth resolution, back-projects metric points, transforms them with recorded camera-to-world poses, and voxel-downsamples the fused cloud. It then detects a camera-relative floor, an optional evidence-supported ceiling, and gravity-aligned wall planes. Floor inliers are projected to a local occupancy grid. A cleaned, simple concave contour is used only when component retention and support improve over the occupancy convex hull; otherwise the prior convex boundary remains the safety fallback.
 
+Each wall plane is then given a finite extent and a deterministic identifier, and its material is profiled in bins along the wall. A void becomes a published opening only when solid wall flanks it on both sides, the floor in front of it was actually scanned, and it has a supported vertical extent. Voids touching the end of the scanned wall are treated as coverage boundaries, never as openings. Room adjacency is recorded only when an opening joins two independently supported floor regions.
+
 ## Assignment capability coverage
 
 | Capability | Status | Explanation |
@@ -439,6 +453,8 @@ The pipeline validates the capture, selects deterministic keyframes, filters dep
 
 - Occupancy contours can follow unscanned gaps; weak, fragmented, invalid, or overly complex contours fall back to a convex boundary that can overfill concavity.
 - Measurements are internal geometric estimates; absolute accuracy was not evaluated because no reference dimensions were supplied.
+- Wall and opening identifiers are deterministic for a given capture and configuration. They are not a cross-capture physical identity, so a benchmark manifest must adopt them before named-wall or opening gates can match.
+- Opening classification is conservative. `unclassified_gap` means the void is supported but its semantics are not, and an empty opening list means no candidate passed the gates rather than a verified absence of doors and windows.
 - Furniture, reflective surfaces, pose error, incomplete coverage, and LiDAR noise can affect the result.
 - Missing evidence remains unavailable rather than being replaced with zero or an invented value.
 - Damage, concealed conditions, and repair scope require validated labelled evidence that is not present in the supplied data.
@@ -563,6 +579,9 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
     wall_segments = _wall_segment_pixels(
         summary, vertices, width=1200, height=800, panel_width=330
     )
+    opening_segments = _opening_segment_pixels(
+        summary, vertices, width=1200, height=800, panel_width=330
+    )
     polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y in pixels)
     pixels_per_metre = float(
         np.linalg.norm(pixels[1] - pixels[0])
@@ -602,6 +621,21 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
         f'x2="{end[0]:.1f}" y2="{end[1]:.1f}" class="wall"/>'
         for start, end in wall_segments
     )
+    opening_lines = "".join(
+        f'<line x1="{start[0]:.1f}" y1="{start[1]:.1f}" '
+        f'x2="{end[0]:.1f}" y2="{end[1]:.1f}" '
+        f'stroke="rgb({",".join(str(value) for value in _opening_colour(kind))})" '
+        'stroke-width="7" stroke-linecap="round"/>'
+        for start, end, kind in opening_segments
+    )
+    # Hard cap: the next fixed panel element sits at y=565, so a fourth line
+    # would overprint it. The text is outside the plan clip group, so nothing
+    # would catch the overflow.
+    opening_notes = _opening_panel_lines(summary)[:OPENING_PANEL_MAX_LINES]
+    opening_text = "".join(
+        f'<text x="900" y="{505 + index * 20}" class="note">{escape(line)}</text>'
+        for index, line in enumerate(opening_notes)
+    )
     svg = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
   <defs><clipPath id="plan-clip"><rect x="30" y="30" width="810" height="740" rx="14"/></clipPath></defs>
@@ -616,7 +650,7 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
   <rect width="1200" height="800" fill="#f8fafc"/>
   <rect x="30" y="30" width="810" height="740" rx="14" fill="white" stroke="#cbd5e1"/>
   <polygon points="{polygon}" fill="#dbeafe" stroke="#1d4ed8" stroke-width="4" stroke-linejoin="round"/>
-  <g clip-path="url(#plan-clip)">{wall_lines}</g>
+  <g clip-path="url(#plan-clip)">{wall_lines}{opening_lines}</g>
   {''.join(edge_labels)}
   <line x1="75" y1="735" x2="{75 + pixels_per_metre:.1f}" y2="735" stroke="#152238" stroke-width="4"/>
   <line x1="75" y1="727" x2="75" y2="743" stroke="#152238" stroke-width="3"/>
@@ -634,12 +668,13 @@ def render_floorplan_svg(path: str | Path, summary: StructureSummary) -> None:
   <text x="900" y="393" class="value">{ceiling_text}</text>
   <text x="900" y="445" class="label">Detected walls</text>
   <text x="900" y="473" class="value">{len(summary.walls)}</text>
-  <text x="900" y="535" class="note">{_outline_method_label(summary.floor_plan.outline_method)}</text>
-  <text x="900" y="560" class="note">Units: metres</text>
-  <text x="900" y="585" class="note">Occupied support: {summary.floor_plan.boundary_support_ratio:.1%}</text>
-  <text x="900" y="605" class="note">Teal markers: detected wall direction</text>
-  <text x="900" y="625" class="note">{warning[:42]}</text>
-  <text x="900" y="645" class="note">{warning[42:84]}</text>
+  {opening_text}
+  <text x="900" y="565" class="note">{_outline_method_label(summary.floor_plan.outline_method)}</text>
+  <text x="900" y="588" class="note">Units: metres</text>
+  <text x="900" y="611" class="note">Occupied support: {summary.floor_plan.boundary_support_ratio:.1%}</text>
+  <text x="900" y="634" class="note">Teal dashes: wall direction. Red: door-like. Orange: window-like.</text>
+  <text x="900" y="657" class="note">{warning[:42]}</text>
+  <text x="900" y="677" class="note">{warning[42:84]}</text>
 </svg>
 """
     destination = Path(path)
@@ -660,6 +695,9 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
         vertices, width=width, height=height, panel_width=panel_width
     )
     wall_segments = _wall_segment_pixels(
+        summary, vertices, width=width, height=height, panel_width=panel_width
+    )
+    opening_segments = _opening_segment_pixels(
         summary, vertices, width=width, height=height, panel_width=panel_width
     )
     pixels = [(round(point[0]), round(point[1])) for point in pixels_array]
@@ -687,6 +725,12 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
             (round(start[0]), round(start[1]), round(end[0]), round(end[1])),
             fill=(15, 118, 110),
             width=3,
+        )
+    for start, end, classification in opening_segments:
+        drawing.line(
+            (round(start[0]), round(start[1]), round(end[0]), round(end[1])),
+            fill=_opening_colour(classification),
+            width=7,
         )
     scale_start_x = 75
     scale_end_x = round(scale_start_x + pixels_per_metre)
@@ -769,24 +813,37 @@ def render_floorplan_png(path: str | Path, summary: StructureSummary) -> None:
         fill=(37, 56, 88),
         font=label_font,
     )
+    for index, line in enumerate(_opening_panel_lines(summary)):
+        drawing.text(
+            (panel_x, 315 + index * 24),
+            line,
+            fill=(37, 56, 88),
+            font=label_font,
+        )
     drawing.text(
-        (panel_x, 335),
+        (panel_x, 395),
         _outline_method_label(summary.floor_plan.outline_method),
         fill=(100, 116, 139),
         font=note_font,
     )
     drawing.text(
-        (panel_x, 360), "Units: metres", fill=(100, 116, 139), font=note_font
+        (panel_x, 420), "Units: metres", fill=(100, 116, 139), font=note_font
     )
     drawing.text(
-        (panel_x, 385),
+        (panel_x, 445),
         f"Occupied support: {summary.floor_plan.boundary_support_ratio:.1%}",
         fill=(100, 116, 139),
         font=note_font,
     )
     drawing.text(
-        (panel_x, 410),
-        "Teal markers: wall direction",
+        (panel_x, 470),
+        "Teal: wall direction",
+        fill=(100, 116, 139),
+        font=note_font,
+    )
+    drawing.text(
+        (panel_x, 495),
+        "Red: door-like   Orange: window-like",
         fill=(100, 116, 139),
         font=note_font,
     )
@@ -857,6 +914,239 @@ def _transform_floorplan_points(
     pixels[:, 0] = centred[:, 0] * scale + (width - panel_width) / 2
     pixels[:, 1] = -centred[:, 1] * scale + height / 2
     return pixels
+
+
+#: Lines the side panel can show before it would overprint the next element.
+OPENING_PANEL_MAX_LINES = 2
+
+
+def _opening_segment_pixels(
+    summary: StructureSummary,
+    reference_vertices_xy_m: NDArray[np.float64],
+    *,
+    width: int,
+    height: int,
+    panel_width: int,
+) -> list[tuple[NDArray[np.float64], NDArray[np.float64], str]]:
+    """Map accepted openings to plan pixels, keeping their classification.
+
+    Returns an empty list when the analysis is unavailable or published no
+    opening, so the drawing never implies a prediction that does not exist.
+    """
+    analysis = summary.openings
+    if analysis is None or analysis.status != "available" or not analysis.openings:
+        return []
+    local = np.asarray(
+        [
+            coordinate
+            for opening in analysis.openings
+            for coordinate in (opening.start_xy_m, opening.end_xy_m)
+        ],
+        dtype=np.float64,
+    )
+    transformed = _transform_floorplan_points(
+        reference_vertices_xy_m,
+        local,
+        width=width,
+        height=height,
+        panel_width=panel_width,
+    )
+    return [
+        (
+            transformed[index * 2],
+            transformed[index * 2 + 1],
+            opening.classification,
+        )
+        for index, opening in enumerate(analysis.openings)
+    ]
+
+
+def _render_intervals_section(result: RunResult) -> str:
+    """Render precision intervals, and say plainly what they are not."""
+    if not result.intervals:
+        return (
+            "No measurement intervals were published for this result. That is not a "
+            "claim of zero uncertainty; see the warnings for why each interval is "
+            "unavailable."
+        )
+    level = result.intervals[0].confidence_level
+    lines = [
+        f"Two-sided {level:.0%} **precision** intervals from a non-parametric "
+        "bootstrap: the observed points are resampled and the same estimator is "
+        "re-run, so the interval measures how stable the published number is on "
+        "this capture.",
+        "",
+        "These are **not accuracy intervals**. No ground truth was supplied, and a "
+        "systematic error such as a wrong intrinsic scale would move every resample "
+        "identically without widening the interval at all.",
+        "",
+        "| Measurement | Value | Interval | Half-width | Resamples |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for interval in result.intervals:
+        lines.append(
+            f"| `{interval.metric}` | {interval.value:.4f} | "
+            f"{interval.low:.4f} to {interval.high:.4f} | "
+            f"{interval.half_width:.4f} | {interval.resamples} |"
+        )
+    lines.extend(
+        [
+            "",
+            "A percentile interval need not contain the point estimate, and that is "
+            "not treated as an error.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _identified_wall_count(result: RunResult) -> str:
+    analysis = result.room.openings
+    if analysis is None or analysis.status != "available":
+        return "not available"
+    return str(len(analysis.walls))
+
+
+def _opening_count(result: RunResult) -> str:
+    analysis = result.room.openings
+    if analysis is None or analysis.status != "available":
+        return "not available"
+    return str(len(analysis.openings))
+
+
+def _render_openings_section(result: RunResult) -> str:
+    """Render openings without letting silence look like a confident negative."""
+    analysis = result.room.openings
+    if analysis is None:
+        return (
+            "No opening analysis is present in this result. It predates the opening "
+            "detector and must not be read as a room without openings."
+        )
+    if analysis.status != "available":
+        return (
+            "**Unavailable.** "
+            + (analysis.unavailable_reason or "No reason was recorded.")
+            + "\n\nThis is not a claim that the room has no openings."
+        )
+    lines = [
+        f"Walls carry deterministic identifiers for this capture and configuration. "
+        f"{analysis.candidate_count} wall void(s) were examined and "
+        f"{len(analysis.openings)} passed every evidence gate.",
+        "",
+        "| Wall | Length | Height | Solid profile |",
+        "|---|---:|---:|---:|",
+    ]
+    lines.extend(
+        f"| `{wall.wall_id}` | {wall.length_m:.2f} m | {wall.height_m:.2f} m | "
+        f"{wall.solid_bin_ratio:.0%} |"
+        for wall in analysis.walls
+    )
+    if analysis.openings:
+        lines.extend(
+            [
+                "",
+                "| Opening | Wall | Class | Width | Height | Confidence | Other side |",
+                "|---|---|---|---:|---:|---|---|",
+            ]
+        )
+        lines.extend(
+            f"| `{opening.opening_id}` | `{opening.wall_id}` | "
+            f"`{opening.classification}` | {opening.width_m:.2f} m | "
+            + (
+                "not available"
+                if opening.height_m is None
+                else f"{opening.height_m:.2f} m"
+            )
+            + f" | `{opening.confidence}` | "
+            + (
+                f"observed space, {opening.far_side_area_m2:.1f} m²"
+                if opening.far_side_area_m2 is not None
+                else "`unknown`"
+            )
+            + " |"
+            for opening in analysis.openings
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "No void passed the evidence gates. Every candidate was rejected with a "
+                "recorded reason, so this is an absence of supported evidence rather "
+                "than a verified absence of openings.",
+            ]
+        )
+    if analysis.adjacency:
+        lines.extend(
+            [
+                "",
+                "| Opening | Wall | Near-side area | Far-side area | Probes agreeing |",
+                "|---|---|---:|---:|---:|",
+            ]
+        )
+        lines.extend(
+            f"| `{link.opening_id}` | `{link.wall_id}` | "
+            f"{link.near_side_area_m2:.1f} m² | {link.far_side_area_m2:.1f} m² | "
+            f"{link.probe_agreement} |"
+            for link in analysis.adjacency
+        )
+        lines.append("")
+        lines.append(
+            "These are measured scanned areas on either side of one wall, not named "
+            "rooms and not a property-wide room graph."
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "No room-to-room adjacency is claimed: no opening was observed to join "
+                "two independently supported floor regions.",
+            ]
+        )
+    if analysis.rejections:
+        lines.extend(["", "Rejected candidates:", ""])
+        lines.extend(
+            f"- `{rejection.wall_id}`"
+            + (
+                f" ({rejection.width_m:.2f} m)"
+                if rejection.width_m is not None
+                else ""
+            )
+            + f": {_markdown_cell(rejection.reason)}"
+            for rejection in analysis.rejections
+        )
+    return "\n".join(lines)
+
+
+def _opening_colour(classification: str) -> tuple[int, int, int]:
+    if classification == "door_like":
+        return 220, 38, 38
+    if classification == "window_like":
+        return 234, 88, 12
+    return 120, 113, 108
+
+
+def _opening_panel_lines(summary: StructureSummary) -> list[str]:
+    """Summarize opening evidence for the side panel in reviewer language."""
+    analysis = summary.openings
+    if analysis is None:
+        return ["Openings: not analysed"]
+    if analysis.status != "available":
+        return ["Openings: unavailable", "(see report for the reason)"]
+    if not analysis.openings:
+        return [
+            f"Openings: none passed ({analysis.candidate_count} candidates)",
+            "Absence of evidence, not evidence of absence",
+        ]
+    counts: dict[str, int] = {}
+    for opening in analysis.openings:
+        counts[opening.classification] = counts.get(opening.classification, 0) + 1
+    detail = ", ".join(
+        f"{count} {name.replace('_', ' ')}" for name, count in sorted(counts.items())
+    )
+    widths = ", ".join(f"{opening.width_m:.2f} m" for opening in analysis.openings[:4])
+    return [
+        f"Openings: {len(analysis.openings)} ({detail})",
+        f"Widths: {widths}",
+    ]
 
 
 def _wall_segment_pixels(

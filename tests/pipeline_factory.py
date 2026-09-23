@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from cozmo_scan.floorplan import analyze_structure
-from cozmo_scan.models import CaptureInventory, PipelineConfig, ValidationResult
+from cozmo_scan.models import (
+    CaptureInventory,
+    IntervalConfig,
+    PipelineConfig,
+    ValidationResult,
+)
 from cozmo_scan.pipeline import (
     CaptureHash,
     PipelineExecution,
@@ -52,6 +57,9 @@ def make_pipeline_execution(*, include_ceiling: bool = True) -> PipelineExecutio
     config = PipelineConfig(
         reconstruction=reconstruction.summary.config,
         structure=structure.summary.config,
+        # Intervals are still exercised, but a full resample budget would
+        # dominate the suite: the outline estimator is re-run once per resample.
+        intervals=IntervalConfig(resamples=8),
     )
     result = build_run_result(
         validation=make_validation(),

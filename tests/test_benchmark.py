@@ -305,6 +305,7 @@ class MetricEvaluationTests(unittest.TestCase):
         measured = evaluate_interval_coverage(((0.9, 1.1, 1.0), (2.1, 2.2, 2.0)))
 
         self.assertEqual(unavailable.status, EvaluationStatus.NOT_EVALUATED)
+        self.assertIn("ground-truth value", unavailable.reason)
         self.assertEqual(measured.covered_count, 1)
         self.assertEqual(measured.coverage_rate, 0.5)
         self.assertEqual(measured.status, EvaluationStatus.NOT_EVALUATED)
@@ -441,7 +442,20 @@ class InputOutputTests(unittest.TestCase):
             matrix = render_compliance_matrix(evaluation)
             self.assertIn("successful command", report)
             self.assertIn("Opening gate", report)
-            self.assertIn("Drift correction", matrix)
+            self.assertIn("Published precision intervals were checked", report)
+            self.assertNotIn("do not publish numerical confidence intervals", report)
+            self.assertIn("Drift accountability", matrix)
+            self.assertIn("schema 1.4.0", matrix)
+            # The assignment specifies requirement -> file path -> artifact ->
+            # status, so the shape of the table is part of the contract.
+            self.assertIn(
+                "| Requirement | File path | Artifact | Status | Evidence / limitation |",
+                matrix,
+            )
+            # Unbuilt requirements must not point at a file that does not
+            # implement them.
+            self.assertIn("| Damage regions with class and metric extent | not present |", matrix)
+            self.assertIn("`src/cozmo_scan/drift.py`", matrix)
             unrelated = output / "reviewer-note.txt"
             unrelated.write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(EvaluationError, "--overwrite"):

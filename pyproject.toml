@@ -21,6 +21,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8,<10",
+  # Build backend, needed for the offline packaging audit. Not a runtime dependency.
+  "setuptools>=75",
 ]
 
 [project.scripts]

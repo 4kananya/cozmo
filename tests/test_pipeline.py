@@ -62,9 +62,16 @@ class FinalResultTests(unittest.TestCase):
             item.capability: item.status for item in decoded.capabilities
         }
 
-        self.assertEqual(decoded.schema_version, "1.1.0")
+        self.assertEqual(decoded.schema_version, "1.4.0")
         self.assertIsNone(decoded.room.ceiling)
         self.assertIsNone(decoded.room.ceiling_height_m)
+        self.assertIn(
+            capabilities["opening_detection"],
+            (
+                CapabilityStatus.SUPPORTED_WITH_LIMITATIONS,
+                CapabilityStatus.NOT_EVALUATED,
+            ),
+        )
         self.assertEqual(
             capabilities["metric_reconstruction"], CapabilityStatus.SUPPORTED
         )
@@ -75,11 +82,14 @@ class FinalResultTests(unittest.TestCase):
             capabilities["ground_truth_accuracy"], CapabilityStatus.NOT_EVALUATED
         )
         self.assertEqual(len(decoded.artifacts.artifacts), 7)
-        legacy = execution.result.model_copy(update={"schema_version": "1.0.0"})
-        self.assertEqual(
-            RunResult.model_validate_json(legacy.model_dump_json()).schema_version,
-            "1.0.0",
-        )
+        for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0"):
+            legacy = execution.result.model_copy(
+                update={"schema_version": version}
+            )
+            self.assertEqual(
+                RunResult.model_validate_json(legacy.model_dump_json()).schema_version,
+                version,
+            )
 
     def test_run_pipeline_composes_existing_stage_implementations(self) -> None:
         expected = make_pipeline_execution()

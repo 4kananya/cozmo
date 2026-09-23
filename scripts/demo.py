@@ -120,8 +120,11 @@ def print_batch_summary(summary: dict[str, object], output_directory: Path) -> N
     print(f"Succeeded: {summary['succeeded_count']}")
     print(f"Failed: {summary['failed_count']}")
     print("")
-    print("Capture | Status | Outline | Area | Dimensions | Ceiling | Confidence")
-    print("-" * 98)
+    print(
+        "Capture | Status | Outline | Area | Dimensions | Ceiling | Openings | "
+        "Confidence"
+    )
+    print("-" * 110)
     items = summary["items"]
     assert isinstance(items, list)
     for raw_item in items:
@@ -139,9 +142,12 @@ def print_batch_summary(summary: dict[str, object], output_directory: Path) -> N
         )
         ceiling = _measurement(raw_item.get("ceiling_height_m"), "m")
         confidence = str(raw_item.get("measurement_confidence") or "n/a")
+        openings = _openings(
+            raw_item.get("opening_count"), raw_item.get("opening_status")
+        )
         print(
             f"{name} | {status} | {outline} | {area} | {dimensions} | "
-            f"{ceiling} | {confidence}"
+            f"{ceiling} | {openings} | {confidence}"
         )
     print("")
     print(f"Batch JSON: {output_directory / 'batch.json'}")
@@ -248,6 +254,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
     return batch_code
+
+
+def _openings(count: object, status: object) -> str:
+    """Report the opening count without implying a verified absence."""
+    if status != "available":
+        return "unavailable"
+    if not isinstance(count, int):
+        return "n/a"
+    if count == 0:
+        return "0 (none passed gates)"
+    return str(count)
 
 
 def _measurement(value: object, unit: str) -> str:

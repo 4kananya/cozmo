@@ -10,6 +10,11 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from cozmo_scan.grid import (
+    build_occupancy_cells,
+    close_occupancy_cells,
+    connected_occupancy_components,
+)
 from cozmo_scan.models import (
     FloorCoordinateSystem,
     FloorPlanMeasurement,
@@ -17,12 +22,19 @@ from cozmo_scan.models import (
     StructureConfig,
     StructureSummary,
 )
+from cozmo_scan.openings import analyze_openings
 from cozmo_scan.reconstruction import ReconstructionResult
 
 FloatArray = NDArray[np.floating]
 BoolArray = NDArray[np.bool_]
 WORLD_UP = np.asarray([0.0, 1.0, 0.0], dtype=np.float64)
 MAX_RANSAC_SAMPLE_POINTS = 20_000
+#: Perimeter, as a multiple of the most compact outline enclosing the same area,
+#: above which the boundary is disclosed as a sprawling coverage extent rather
+#: than a plausible single-room wall layout. A rectangular room sits near 1.0 to
+#: 1.3. This is a disclosure threshold only: it never rejects an outline, because
+#: no evidence available here can prove how many rooms were scanned.
+SPRAWL_DISCLOSURE_RATIO = 2.0
 
 
 class StructureError(ValueError):
@@ -42,9 +54,18 @@ class PlaneFit:
 
 @dataclass(frozen=True, slots=True)
 class StructureResult:
-    """In-memory structural result with its public serializable summary."""
+    """In-memory structural result with its public serializable summary.
+
+    The arrays are retained in memory only and are never serialized. They exist
+    so a resampling pass can re-run the *same* estimator on resampled inputs
+    rather than reimplementing it, which is what makes a measurement interval
+    comparable with the published measurement.
+    """
 
     summary: StructureSummary
+    projected_floor_xy_m: NDArray[np.float64] | None = None
+    floor_heights_m: NDArray[np.float64] | None = None
+    ceiling_heights_m: NDArray[np.float64] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,73 +242,6 @@ def build_convex_outline(points_xy_m: FloatArray) -> NDArray[np.float64]:
     if len(hull) < 3:
         raise StructureError("Projected floor points are collinear")
     return np.asarray(hull, dtype=np.float64)
-
-
-def build_occupancy_cells(
-    points_xy_m: FloatArray, grid_size_m: float
-) -> set[tuple[int, int]]:
-    """Quantize finite floor-local points to deterministic integer grid cells."""
-    points = np.asarray(points_xy_m, dtype=np.float64)
-    if points.ndim != 2 or points.shape[1] != 2:
-        raise ValueError("occupancy points must have shape (N, 2)")
-    if grid_size_m <= 0:
-        raise ValueError("grid_size_m must be positive")
-    finite = points[np.isfinite(points).all(axis=1)]
-    cells = np.floor(finite / grid_size_m).astype(np.int64)
-    return {(int(cell[0]), int(cell[1])) for cell in cells}
-
-
-def close_occupancy_cells(
-    cells: set[tuple[int, int]], radius_cells: int
-) -> set[tuple[int, int]]:
-    """Close one-cell-scale gaps with square dilation followed by erosion."""
-    if radius_cells < 0:
-        raise ValueError("radius_cells must be non-negative")
-    if not cells or radius_cells == 0:
-        return set(cells)
-    offsets = tuple(
-        (dx, dy)
-        for dx in range(-radius_cells, radius_cells + 1)
-        for dy in range(-radius_cells, radius_cells + 1)
-    )
-    dilated = {
-        (cell_x + dx, cell_y + dy)
-        for cell_x, cell_y in cells
-        for dx, dy in offsets
-    }
-    return {
-        (cell_x, cell_y)
-        for cell_x, cell_y in dilated
-        if all((cell_x + dx, cell_y + dy) in dilated for dx, dy in offsets)
-    }
-
-
-def connected_occupancy_components(
-    cells: set[tuple[int, int]],
-) -> tuple[frozenset[tuple[int, int]], ...]:
-    """Return deterministic four-neighbour occupancy components, largest first."""
-    remaining = set(cells)
-    components: list[frozenset[tuple[int, int]]] = []
-    while remaining:
-        seed = min(remaining)
-        remaining.remove(seed)
-        component = {seed}
-        pending = [seed]
-        while pending:
-            cell_x, cell_y = pending.pop()
-            for neighbour in (
-                (cell_x - 1, cell_y),
-                (cell_x, cell_y - 1),
-                (cell_x, cell_y + 1),
-                (cell_x + 1, cell_y),
-            ):
-                if neighbour in remaining:
-                    remaining.remove(neighbour)
-                    component.add(neighbour)
-                    pending.append(neighbour)
-        components.append(frozenset(component))
-    components.sort(key=lambda component: (-len(component), min(component)))
-    return tuple(components)
 
 
 def trace_occupancy_boundary(
@@ -500,31 +454,36 @@ def simplify_polygon(
     vertices = np.asarray(vertices_xy_m, dtype=np.float64).copy()
     if len(vertices) < 3 or tolerance_m < 0:
         raise ValueError("polygon requires three vertices and a non-negative tolerance")
+    # Greedy vertex decimation: repeatedly drop the single removable vertex with
+    # the smallest deviation. The removal order changes the result, so each pass
+    # must still rescan every vertex, but the pass itself is vectorised. Scoring
+    # it with a Python loop made this function dominate the whole pipeline at
+    # roughly 2.3 s of a 4.2 s capture, because a 992-vertex contour needs ~935
+    # passes. Ties resolve to the lowest index, matching the original scan order.
     while len(vertices) > 3:
-        removable_index: int | None = None
-        removable_score = math.inf
-        for index in range(len(vertices)):
-            previous = vertices[index - 1]
-            current = vertices[index]
-            following = vertices[(index + 1) % len(vertices)]
-            chord = following - previous
-            chord_length = float(np.linalg.norm(chord))
-            if chord_length < 1e-12:
-                score = 0.0
-            else:
-                delta = current - previous
-                score = abs(float(chord[0] * delta[1] - chord[1] * delta[0])) / chord_length
-            adjacent = min(
-                float(np.linalg.norm(current - previous)),
-                float(np.linalg.norm(following - current)),
-            )
-            metric = min(score, adjacent)
-            if metric <= tolerance_m and metric < removable_score:
-                removable_index = index
-                removable_score = metric
-        if removable_index is None:
+        previous = np.roll(vertices, 1, axis=0)
+        following = np.roll(vertices, -1, axis=0)
+        chord = following - previous
+        chord_length = np.linalg.norm(chord, axis=1)
+        delta = vertices - previous
+        cross = np.abs(chord[:, 0] * delta[:, 1] - chord[:, 1] * delta[:, 0])
+        # A degenerate chord scored zero in the original formulation.
+        score = np.divide(
+            cross,
+            chord_length,
+            out=np.zeros_like(cross),
+            where=chord_length >= 1e-12,
+        )
+        adjacent = np.minimum(
+            np.linalg.norm(delta, axis=1),
+            np.linalg.norm(following - vertices, axis=1),
+        )
+        metric = np.minimum(score, adjacent)
+        eligible = metric <= tolerance_m
+        if not bool(eligible.any()):
             break
-        vertices = np.delete(vertices, removable_index, axis=0)
+        candidates = np.where(eligible, metric, np.inf)
+        vertices = np.delete(vertices, int(np.argmin(candidates)), axis=0)
     return vertices
 
 
@@ -619,11 +578,40 @@ def analyze_structure(
         effective,
     )
 
+    openings = analyze_openings(
+        points_xyz_m=points,
+        floor_normal_xyz=floor_fit.normal_xyz,
+        floor_centroid_xyz_m=floor_fit.centroid_xyz_m,
+        ceiling_height_m=ceiling_height,
+        coordinates=coordinates,
+        walls=walls,
+        occupancy_cells=build_occupancy_cells(
+            boundary_points, effective.boundary_grid_size_m
+        ),
+        grid_size_m=effective.boundary_grid_size_m,
+        config=effective,
+    )
+
     warnings = []
     if floor_plan.outline_method == "occupancy_concave":
         warnings.append(
             "Floor outline uses a component-aware occupancy contour; unscanned gaps can still affect the boundary."
         )
+        # Disclose shape complexity quantitatively. A well-supported contour can
+        # still be a sprawling partial sweep rather than a room: the support
+        # ratio says the boundary hugs observed floor, and says nothing about
+        # whether that floor is one room. Compare the perimeter with the most
+        # compact outline enclosing the same area, which is the square.
+        compact_perimeter = 4.0 * math.sqrt(floor_plan.area_m2)
+        shape_ratio = floor_plan.perimeter_m / compact_perimeter
+        if shape_ratio > SPRAWL_DISCLOSURE_RATIO:
+            warnings.append(
+                f"The outline perimeter is {floor_plan.perimeter_m:.1f} m for "
+                f"{floor_plan.area_m2:.1f} m2, which is {shape_ratio:.1f} times the most "
+                "compact outline of that area. The boundary follows scanned coverage, so "
+                "this is the measured extent of observed floor and should not be read as "
+                "one room's wall layout without inspecting the plan."
+            )
     else:
         reason = floor_plan.fallback_reason or "concave evidence was unavailable"
         warnings.append(
@@ -637,6 +625,22 @@ def analyze_structure(
     if len(walls) < 2:
         warnings.append(
             f"Only {len(walls)} credible wall plane(s) were detected; wall coverage is limited."
+        )
+    if openings.status == "unavailable":
+        warnings.append(
+            "Opening detection is unavailable for this capture: "
+            + (openings.unavailable_reason or "no reason was recorded.")
+        )
+    elif not openings.openings:
+        warnings.append(
+            f"No wall void passed the opening evidence gates; {openings.candidate_count} "
+            "candidate(s) were examined and rejected. Openings are reported as none, "
+            "not as absent."
+        )
+    if openings.status == "available" and not openings.adjacency:
+        warnings.append(
+            "No room-to-room adjacency is claimed: a second independently supported "
+            "floor region was not observed through any opening."
         )
     if floor.rmse_m > effective.floor_rmse_warning_m:
         warnings.append(
@@ -667,6 +671,7 @@ def analyze_structure(
         walls=walls,
         floor_coordinates=coordinates,
         floor_plan=floor_plan,
+        openings=openings,
         ceiling_height_m=ceiling_height,
         elapsed_seconds=time.perf_counter() - started,
         warnings=tuple(warnings),
@@ -676,7 +681,15 @@ def analyze_structure(
             "floorplan_preview": "floorplan.png",
         },
     )
-    return StructureResult(summary=summary)
+    heights = (points - floor_fit.centroid_xyz_m) @ floor_fit.normal_xyz
+    return StructureResult(
+        summary=summary,
+        projected_floor_xy_m=projected,
+        floor_heights_m=heights[floor_fit.inlier_mask],
+        ceiling_heights_m=(
+            heights[ceiling_fit.inlier_mask] if ceiling_fit is not None else None
+        ),
+    )
 
 
 def detect_floor(

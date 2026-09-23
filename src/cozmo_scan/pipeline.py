@@ -15,13 +15,14 @@ import pydantic
 from cozmo_scan import __version__
 from cozmo_scan.dataset import CaptureError, open_capture, validate_capture
 from cozmo_scan.floorplan import StructureError, StructureResult, analyze_structure
+from cozmo_scan.intervals import build_measurement_intervals
 from cozmo_scan.models import (
     ArtifactManifest,
     ArtifactRecord,
     CapabilityAssessment,
     CapabilityStatus,
-    CaptureInventory,
     FrameSelection,
+    IntervalConfig,
     InputProvenance,
     IssueSeverity,
     PipelineConfig,
@@ -95,6 +96,10 @@ FINAL_ARTIFACT_RECORDS = (
 )
 
 
+#: Resamples used by the `test` profile, whose purpose is a fast smoke run.
+TEST_PROFILE_RESAMPLES = 8
+
+
 class PipelineError(ValueError):
     """Raised when a final product run cannot be completed."""
 
@@ -123,8 +128,13 @@ def get_pipeline_config(
     max_frames: int | None = None,
     frame_selection: FrameSelection | str = FrameSelection.DISTRIBUTED,
     structure: StructureConfig | None = None,
+    intervals: IntervalConfig | None = None,
 ) -> PipelineConfig:
-    """Build the complete effective configuration for a final run."""
+    """Build the complete effective configuration for a final run.
+
+    The `test` profile bounds interval resampling as well as reconstruction. Its
+    purpose is a fast smoke run, and a full resample budget would dominate it.
+    """
     return PipelineConfig(
         reconstruction=get_profile_config(
             profile,
@@ -132,6 +142,12 @@ def get_pipeline_config(
             frame_selection=frame_selection,
         ),
         structure=structure or StructureConfig(),
+        intervals=intervals
+        or (
+            IntervalConfig(resamples=TEST_PROFILE_RESAMPLES)
+            if ReconstructionProfile(profile) is ReconstructionProfile.TEST
+            else IntervalConfig()
+        ),
     )
 
 
@@ -194,7 +210,16 @@ def build_run_result(
         walls=structure.summary.walls,
         floor_coordinates=structure.summary.floor_coordinates,
         floor_plan=structure.summary.floor_plan,
+        openings=structure.summary.openings,
         ceiling_height_m=structure.summary.ceiling_height_m,
+    )
+    intervals, interval_warnings = build_measurement_intervals(
+        structure.summary,
+        projected_floor_xy_m=structure.projected_floor_xy_m,
+        floor_heights_m=structure.floor_heights_m,
+        ceiling_heights_m=structure.ceiling_heights_m,
+        structure=config.structure,
+        config=config.intervals,
     )
     warnings = _unique_warnings(
         tuple(
@@ -204,6 +229,7 @@ def build_run_result(
         ),
         reconstruction.summary.warnings,
         structure.summary.warnings,
+        interval_warnings,
     )
     quality = build_quality_metrics(reconstruction, structure, config, warnings)
     return RunResult(
@@ -226,6 +252,7 @@ def build_run_result(
             pydantic_version=pydantic.__version__,
         ),
         capabilities=build_capability_assessments(structure),
+        intervals=intervals,
         warnings=warnings,
         artifacts=ArtifactManifest(artifacts=FINAL_ARTIFACT_RECORDS),
     )
@@ -272,6 +299,41 @@ def build_capability_assessments(
     structure: StructureResult,
 ) -> tuple[CapabilityAssessment, ...]:
     """State assignment coverage without inventing unsupported results."""
+    openings = structure.summary.openings
+    if openings is None or openings.status == "unavailable":
+        reason = (
+            openings.unavailable_reason
+            if openings is not None and openings.unavailable_reason
+            else "No opening analysis was produced for this capture."
+        )
+        wall_identity_status = CapabilityStatus.NOT_EVALUATED
+        wall_identity_explanation = reason
+        opening_status = CapabilityStatus.NOT_EVALUATED
+        opening_explanation = reason
+    else:
+        wall_identity_status = CapabilityStatus.SUPPORTED_WITH_LIMITATIONS
+        wall_identity_explanation = (
+            f"{len(openings.walls)} wall segment(s) carry deterministic identifiers that "
+            "are stable for this capture and configuration, not across captures."
+        )
+        opening_status = CapabilityStatus.SUPPORTED_WITH_LIMITATIONS
+        opening_explanation = (
+            f"{len(openings.openings)} opening(s) passed the evidence gates out of "
+            f"{openings.candidate_count} candidate(s). Widths are geometric estimates; "
+            "no opening ground truth was supplied, so accuracy is unevaluated."
+        )
+    if openings is not None and openings.adjacency:
+        adjacency_status = CapabilityStatus.SUPPORTED_WITH_LIMITATIONS
+        adjacency_explanation = (
+            f"{len(openings.adjacency)} opening(s) join two independently supported "
+            "floor regions. Regions are scan evidence, not named rooms."
+        )
+    else:
+        adjacency_status = CapabilityStatus.NOT_EVALUATED
+        adjacency_explanation = (
+            "No opening was observed to join two independently supported floor "
+            "regions, so no adjacency is claimed."
+        )
     ceiling_explanation = (
         "A ceiling plane passed support checks for this capture."
         if structure.summary.ceiling is not None
@@ -303,6 +365,21 @@ def build_capability_assessments(
             "ceiling_measurement",
             CapabilityStatus.SUPPORTED_WITH_LIMITATIONS,
             ceiling_explanation,
+        ),
+        _capability(
+            "wall_identity",
+            wall_identity_status,
+            wall_identity_explanation,
+        ),
+        _capability(
+            "opening_detection",
+            opening_status,
+            opening_explanation,
+        ),
+        _capability(
+            "room_adjacency",
+            adjacency_status,
+            adjacency_explanation,
         ),
         _capability(
             "independent_sample_processing",

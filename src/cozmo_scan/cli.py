@@ -225,6 +225,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="replace known evaluation artifacts in the output directory",
     )
     evaluate_parser.set_defaults(handler=handle_evaluate)
+
+    ablate_parser = subparsers.add_parser(
+        "ablate",
+        help="run the drift-correction on/off ablation for one capture",
+        description=(
+            "Rebuild one capture with recorded poses and again with bounded "
+            "plane-anchored drift correction, then publish the comparison and the "
+            "accept/roll-back decision."
+        ),
+    )
+    ablate_parser.add_argument("capture", type=Path, help="capture ZIP or directory")
+    ablate_parser.add_argument(
+        "--output", type=Path, required=True, help="drift artifact directory"
+    )
+    ablate_parser.add_argument(
+        "--profile",
+        choices=[profile.value for profile in ReconstructionProfile],
+        default=ReconstructionProfile.FAST.value,
+        help="bounded reconstruction profile",
+    )
+    ablate_parser.add_argument(
+        "--max-frames",
+        type=_positive_int,
+        default=None,
+        help="override the profile keyframe cap",
+    )
+    ablate_parser.add_argument(
+        "--max-offset",
+        type=float,
+        default=None,
+        help="override the maximum per-frame correction in metres",
+    )
+    ablate_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace known drift artifacts in the output directory",
+    )
+    ablate_parser.set_defaults(handler=handle_ablate)
     return parser
 
 
@@ -467,6 +505,58 @@ def handle_evaluate(arguments: argparse.Namespace) -> int:
     for warning in evaluation.warnings:
         print(f"WARNING: {warning}")
     # A generated report is a successful command even when a product gate fails.
+    return 0
+
+
+def handle_ablate(arguments: argparse.Namespace) -> int:
+    """Run both drift-correction arms and publish the comparison."""
+    from cozmo_scan.drift import DriftError, run_drift_ablation, write_drift_outputs
+    from cozmo_scan.models import DriftConfig
+    from cozmo_scan.pipeline import (
+        PipelineError,
+        get_pipeline_config,
+        hash_capture_input,
+    )
+
+    drift_overrides: dict[str, object] = {"enabled": True}
+    if arguments.max_offset is not None:
+        if arguments.max_offset <= 0:
+            print("Maximum offset must be positive", file=sys.stderr)
+            return 2
+        drift_overrides["maximum_offset_m"] = arguments.max_offset
+    try:
+        config = get_pipeline_config(
+            arguments.profile, max_frames=arguments.max_frames
+        )
+        capture_hash = hash_capture_input(arguments.capture)
+        ablation, _, _ = run_drift_ablation(
+            arguments.capture,
+            config,
+            DriftConfig(**drift_overrides),
+            input_sha256=capture_hash.sha256,
+        )
+        paths = write_drift_outputs(
+            ablation, arguments.output, overwrite=arguments.overwrite
+        )
+    except (DriftError, PipelineError, ValueError) as exc:
+        print(f"Drift ablation failed: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"Decision: {ablation.decision.replace('_', ' ').upper()}")
+    print(f"Published geometry: {ablation.selected_variant}")
+    print(f"Reason: {ablation.decision_reason}")
+    for variant in ablation.variants:
+        print(
+            f"{variant.label}: floor RMSE {variant.floor_rmse_m:.4f} m, "
+            f"area {variant.floor_area_m2:.2f} m2, "
+            f"{variant.length_m:.2f} x {variant.width_m:.2f} m, "
+            f"walls {variant.wall_count}, support {variant.boundary_support_ratio:.1%}"
+        )
+    for name, path in paths.items():
+        print(f"{name}: {path}")
+    for warning in ablation.warnings:
+        print(f"WARNING: {warning}")
+    # Publishing a valid ablation is success even when the correction is rejected.
     return 0
 
 

@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from cozmo_scan.batch import BATCH_JSON_FILENAME
 from cozmo_scan.models import BatchSummary, RunResult
 
-EVALUATION_SCHEMA_VERSION = "1.0.0"
+EVALUATION_SCHEMA_VERSION = "1.1.0"
 GROUND_TRUTH_SCHEMA_VERSION = "1.0.0"
 EVALUATION_JSON_FILENAME = "evaluation.json"
 EVALUATION_REPORT_FILENAME = "evaluation-report.md"
@@ -284,7 +284,7 @@ class CalibrationSummary(StrictModel):
 class BenchmarkEvaluation(StrictModel):
     """Complete machine-readable CP08 benchmark result."""
 
-    schema_version: Literal["1.0.0"] = EVALUATION_SCHEMA_VERSION
+    schema_version: Literal["1.0.0", "1.1.0"] = EVALUATION_SCHEMA_VERSION
     product: Literal["cozmo-scan-evaluation"] = "cozmo-scan-evaluation"
     status: Literal["passed", "failed_gates", "incomplete"]
     property_id: str
@@ -296,6 +296,8 @@ class BenchmarkEvaluation(StrictModel):
     matched_result_count: int = Field(ge=0)
     tiers_present: tuple[InputTier, ...]
     repeatability_group_count: int = Field(ge=0)
+    predicted_wall_count_across_captures: int = Field(default=0, ge=0)
+    predicted_opening_count_across_captures: int = Field(default=0, ge=0)
     passed_count: int = Field(ge=0)
     failed_count: int = Field(ge=0)
     missing_prediction_count: int = Field(ge=0)
@@ -431,7 +433,10 @@ def evaluate_interval_coverage(
             covered_count=0,
             coverage_rate=None,
             status=EvaluationStatus.NOT_EVALUATED,
-            reason="Current result schema publishes quality evidence, not numerical intervals.",
+            reason=(
+                "No published precision interval could be paired with a supplied "
+                "ground-truth value."
+            ),
         )
     covered = 0
     for lower, upper, truth in intervals:
@@ -546,7 +551,9 @@ def evaluate_benchmark(
         manifest, rooms, predictions, tuple(capture_evaluations)
     )
     openings = _summarize_openings(all_measurements)
-    intervals = evaluate_interval_coverage(())
+    intervals = evaluate_interval_coverage(
+        _published_interval_coverage(manifest, rooms, results)
+    )
 
     gate_failure = any(
         measurement.status == EvaluationStatus.FAILED
@@ -581,6 +588,12 @@ def evaluate_benchmark(
         ),
         tiers_present=tiers_present,
         repeatability_group_count=len(repeatability_groups),
+        predicted_wall_count_across_captures=sum(
+            len(prediction.walls_m) for prediction in predictions.values()
+        ),
+        predicted_opening_count_across_captures=sum(
+            len(prediction.openings_m) for prediction in predictions.values()
+        ),
         passed_count=_count_status(all_measurements, EvaluationStatus.PASSED),
         failed_count=_count_status(all_measurements, EvaluationStatus.FAILED),
         missing_prediction_count=_count_status(
@@ -774,7 +787,14 @@ def render_evaluation_report(evaluation: BenchmarkEvaluation) -> str:
             "- Wall accuracy gate: no more than 8% for photo and 3% for video. The assignment gives no equivalent LiDAR wall threshold.",
             "- Repeatability gate: ceiling spread no more than 0.01 m; wall spread no more than 0.01 m or 0.5%.",
             "- Floor area and principal dimensions are diagnostic because the assignment does not define a direct pass threshold for those derived values.",
-            "- Current results do not publish named wall/opening identities or numerical confidence intervals; those checks therefore remain explicit missing/not-evaluated results.",
+            f"- Results published {evaluation.predicted_wall_count_across_captures} identified wall segment(s) and {evaluation.predicted_opening_count_across_captures} opening prediction(s). Opening identifiers are deterministic per capture and configuration; a truth manifest must adopt them before a width can match.",
+            (
+                "- Published precision intervals were checked descriptively against "
+                "the supplied truth; no pass threshold is invented."
+                if evaluation.interval_calibration.interval_count
+                else "- No published precision interval could be paired with supplied "
+                "ground truth, so coverage remains not evaluated."
+            ),
         ]
     )
     if evaluation.warnings:
@@ -785,74 +805,390 @@ def render_evaluation_report(evaluation: BenchmarkEvaluation) -> str:
 
 
 def render_compliance_matrix(evaluation: BenchmarkEvaluation) -> str:
-    """Render assignment requirements against current implemented evidence."""
-    rows = (
-        ("Guided capture route", "Not implemented", "Offline processor accepts existing captures; it has no capture UI."),
-        ("Photo-only tier", "Not implemented", "No photo-only reconstruction path or same-room photo benchmark."),
-        ("Video-only tier", "Not implemented", "RGB video is inventoried but not used as a video-only geometry path."),
-        ("LiDAR tier", "Implemented with limitations", "`run`/`batch` process supplied Stray Scanner depth and poses."),
-        ("Device/input-tier matrix", "Not evaluated", "Only the supplied LiDAR captures have been run."),
-        ("Benchmark uses at least 3 rooms", "Declared" if evaluation.room_count >= 3 else "Not met", f"Manifest declares {evaluation.room_count} room(s); physical setup must be independently verified."),
-        ("Same rooms captured at photo/video/LiDAR tiers", _same_rooms_all_tiers(evaluation), "Every benchmark room must have all three declared input tiers."),
-        ("Repeated capture protocol", "Declared" if evaluation.repeatability_group_count else "Not met", f"Manifest declares {evaluation.repeatability_group_count} repeatability group(s)."),
-        ("Staged damage in at least 2 classes", "Not evaluated", "Current product and benchmark schema do not predict/score damage classes."),
-        ("Laser/tape ground truth", "Declared; verify independently", f"Manifest method: {evaluation.measurement_method}"),
-        ("Per-room floor/wall/ceiling plan", "Partial", "Floor outline, wall planes, and optional ceiling are published; boundary area can remain provisional."),
-        ("Openings with widths", "Not implemented", f"Evaluation expects openings; current missing predictions: {evaluation.openings.missed_count}."),
-        ("Multi-room stitching", "Not evaluated", "Supplied captures are independent; no common-property truth/links are available."),
-        ("Photo stitching within ±8%", "Not evaluated", "No photo-only or stitched multi-room prediction exists."),
-        ("Damage detection", "Not implemented", "No labelled damage data; no detections are fabricated."),
-        ("Concealed-condition flags", "Not implemented", "Not reliably observable from supplied LiDAR samples."),
-        ("Repair-scope generation", "Not implemented", "Depends on validated damage evidence."),
-        ("Confidence intervals", "Not implemented", evaluation.interval_calibration.reason),
-        ("One-command local run", "Implemented", "`run`, `batch`, and `scripts/demo.py` publish validated artifacts."),
-        ("Versioned machine-readable JSON", "Implemented", "`result.json`, `batch.json`, and `evaluation.json` use strict versioned contracts."),
-        ("Rendered plan", "Implemented with limitations", "SVG/PNG plan uses a checked occupancy contour or an explicit convex safety fallback."),
-        ("Ground-truth benchmark", "Implemented; data required", f"CP08 matched {evaluation.matched_result_count}/{evaluation.capture_count} declared captures."),
-        ("Opening <=2 cm on >=85%", evaluation.openings.status.value, evaluation.openings.reason),
-        ("Ceiling <=1.5 cm", _metric_gate_summary(evaluation, "ceiling_height"), "See evaluation.json capture measurements."),
-        ("Repeated ceiling <=1 cm", _repeatability_summary(evaluation, "ceiling_height"), "Requires at least two captures in a repeatability group."),
-        ("Repeated walls <=1 cm or 0.5%", _repeatability_summary(evaluation, "wall_length"), "Requires named wall predictions across repeated captures."),
-        ("Photo wall accuracy <=8%", _tier_wall_summary(evaluation, InputTier.PHOTO), "Requires same-room photo results with named walls."),
-        ("Video wall accuracy <=3%", _tier_wall_summary(evaluation, InputTier.VIDEO), "Requires same-room video results with named walls."),
-        ("Drift correction and on/off ablation", "Not implemented", "Recorded poses are used as-is; start/end distance is only a closure proxy."),
-        ("Competitor comparison", "Not evaluated", "No licensed identical-input competitor run and common truth."),
-        ("Scan/fix/rescan loop", "Not implemented", "No repair workflow or verified post-fix capture."),
-        ("Offline/no cloud dependency", "Implemented", "Core commands require no account, API key, service, GPU, or network."),
+    """Render assignment requirements against code, artifacts, and status.
+
+    The assignment asks for requirement, file path, artifact, and status. The
+    file path names where the behaviour lives or would have to live, and the
+    artifact names the published file a reviewer can open to check the claim, so
+    every row is traceable rather than asserted.
+    """
+    openings = evaluation.openings
+    rows: tuple[tuple[str, str, str, str, str], ...] = (
+        # requirement, file path, artifact, status, evidence / limitation
+        (
+            "Guided capture route",
+            "`docs/capture-route.md`",
+            "`docs/capture-route.md`",
+            "Implemented as a stock-capture protocol",
+            "Route 2. Stock Stray Scanner protocol written for a non-engineer. No iOS application and no TestFlight or dev build.",
+        ),
+        (
+            "Device / input-tier matrix",
+            "`docs/device-matrix.md`",
+            "`docs/device-matrix.md`",
+            "Implemented; one tier only",
+            "LiDAR tier mapped to LiDAR-equipped Pro-class iPhones. Photo and video tiers are recorded as not implemented, so no hardware runs them.",
+        ),
+        (
+            "Photo-only tier",
+            "not present",
+            "none",
+            "Not implemented",
+            "No photo-only reconstruction path and no same-room photo benchmark.",
+        ),
+        (
+            "Video-only tier",
+            "not present",
+            "none",
+            "Not implemented",
+            "`rgb.mp4` is inventoried during validation and is not used as a video-only geometry path.",
+        ),
+        (
+            "LiDAR tier",
+            "`src/cozmo_scan/dataset.py`, `reconstruction.py`",
+            "`reconstruction.ply`, `result.json`",
+            "Implemented with limitations",
+            "`run` and `batch` process supplied Stray Scanner depth, confidence, intrinsics and recorded poses.",
+        ),
+        (
+            "Per-room floor / wall / ceiling plan",
+            "`src/cozmo_scan/floorplan.py`",
+            "`result.json`, `floorplan.svg`, `floorplan.png`",
+            "Implemented with limitations",
+            "Floor outline, wall planes and optional ceiling are published. A sprawling outline is disclosed as a coverage extent rather than a room.",
+        ),
+        (
+            "Openings with widths",
+            "`src/cozmo_scan/openings.py`",
+            "`result.json`, `floorplan.svg`",
+            _opening_implementation_status(evaluation),
+            f"Results published {evaluation.predicted_opening_count_across_captures} opening prediction(s); missing predictions: {openings.missed_count}; phantoms: {openings.phantom_count}. A void is published only when space is observed behind it.",
+        ),
+        (
+            "Named wall identities",
+            "`src/cozmo_scan/openings.py`",
+            "`result.json`",
+            _wall_identity_status(evaluation),
+            f"Results published {evaluation.predicted_wall_count_across_captures} identified wall segment(s). Identifiers are per-capture deterministic, so a truth manifest must adopt them before a width can match.",
+        ),
+        (
+            "Rendered plan",
+            "`src/cozmo_scan/outputs.py`",
+            "`floorplan.svg`, `floorplan.png`",
+            "Implemented with limitations",
+            "Vector and raster plan with dimensions, scale bar, wall direction and openings. Drawn dimension labels are capped for readability while JSON retains every edge.",
+        ),
+        (
+            "Versioned machine-readable JSON",
+            "`src/cozmo_scan/models.py`",
+            "`result.json`, `batch.json`, `evaluation.json`",
+            "Implemented",
+            "Strict versioned Pydantic contracts at schema 1.4.0, with 1.0.0 through 1.3.0 still readable.",
+        ),
+        (
+            "One command per capture",
+            "`src/cozmo_scan/cli.py`",
+            "seven-file run bundle",
+            "Implemented",
+            "`run`, `batch`, and `scripts/demo.py` publish validated artifacts with staged writes and overwrite protection.",
+        ),
+        (
+            "Offline, no cloud dependency",
+            "`pyproject.toml`",
+            "n/a",
+            "Implemented",
+            "NumPy, Pillow and Pydantic only. No account, API key, service, GPU or network. Verified by an offline packaging audit.",
+        ),
+        (
+            "Confidence interval on every measurement",
+            "`src/cozmo_scan/intervals.py`",
+            "`result.json`",
+            _interval_implementation_status(evaluation),
+            "Bootstrap **precision** intervals on floor area, perimeter, principal "
+            "dimensions and ceiling height: the observed points are resampled and the "
+            "same estimator re-run. Explicitly not accuracy, since a systematic error "
+            "would move every resample identically. Opening widths have no interval "
+            "yet and say so. "
+            + _markdown_plain(evaluation.interval_calibration.reason),
+        ),
+        (
+            "Multi-room stitching",
+            "not present",
+            "none",
+            "Not implemented",
+            "Supplied captures are independent single sweeps. CP10 adjacency is a prerequisite, not a substitute.",
+        ),
+        (
+            "Damage regions with class and metric extent",
+            "not present",
+            "none",
+            "Not implemented",
+            "No labelled damage data. No detections are fabricated.",
+        ),
+        (
+            "Concealed-damage flags with the rule that fired",
+            "not present",
+            "none",
+            "Not implemented",
+            "Not reliably observable from the supplied LiDAR samples.",
+        ),
+        (
+            "Scope line items keyed to surfaces",
+            "not present",
+            "none",
+            "Not implemented",
+            "Depends on validated damage evidence that does not exist.",
+        ),
+        (
+            "Drift accountability and on/off ablation",
+            "`src/cozmo_scan/drift.py`",
+            "`drift-ablation.json`, `drift-ablation.md`",
+            "Implemented with limitations",
+            "`ablate` always estimates a bounded plane-anchored correction and rebuilds both arms. Poses are not used as-is. Acceptance checks point count and inlier support first, then a trimmed residual. Vertical drift only.",
+        ),
+        (
+            "Ground-truth benchmark and evaluator",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`, `evaluation-report.md`",
+            "Implemented; data required",
+            f"Matched {evaluation.matched_result_count}/{evaluation.capture_count} declared captures. No real ground truth has been supplied, so no manifest is tracked.",
+        ),
+        (
+            "Compliance matrix",
+            "`src/cozmo_scan/benchmark.py`",
+            "`compliance-matrix.md`",
+            "Implemented",
+            "This file. Generated from the evaluation rather than maintained by hand.",
+        ),
+        (
+            "Fix loop: declaration, fix, before/after",
+            "`docs/fix-loop-declaration.md`, `docs/fix-loop-result.md`",
+            "`docs/fix-loop-result.md`",
+            "Implemented",
+            "Declared gate was boundary support failing at 48.5%. Declaration written before implementation; prediction exact to 0.01 percentage points; gate moved to 3 of 3 passing.",
+        ),
+        (
+            "Technical report within 6 pages",
+            "`docs/technical-report.md`",
+            "`docs/technical-report.md`",
+            "Implemented",
+            "Architecture, tier design, drift handling, error budget, calibration analysis, fix loop and known failure modes.",
+        ),
+        (
+            "Benchmark uses at least 3 rooms",
+            "`benchmark/README.md`",
+            "ground-truth manifest",
+            "Declared" if evaluation.room_count >= 3 else "Not met",
+            f"Manifest declares {evaluation.room_count} room(s). The physical setup must be verified independently; the evaluator cannot certify it.",
+        ),
+        (
+            "Same rooms captured at photo, video and LiDAR tiers",
+            "`benchmark/README.md`",
+            "ground-truth manifest",
+            _same_rooms_all_tiers(evaluation),
+            "Every benchmark room must declare all three input tiers.",
+        ),
+        (
+            "Repeated capture protocol",
+            "`benchmark/README.md`",
+            "ground-truth manifest",
+            "Declared" if evaluation.repeatability_group_count else "Not met",
+            f"Manifest declares {evaluation.repeatability_group_count} repeatability group(s).",
+        ),
+        (
+            "Staged damage in at least 2 classes",
+            "not present",
+            "none",
+            "Not evaluated",
+            "Neither the product nor the benchmark schema predicts or scores damage classes.",
+        ),
+        (
+            "Laser or tape ground truth",
+            "`benchmark/README.md`",
+            "ground-truth manifest",
+            "Declared; verify independently",
+            f"Manifest method: {_markdown_plain(evaluation.measurement_method)}",
+        ),
+        (
+            "Opening widths within 2 cm on at least 85%",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            openings.status.value,
+            _markdown_plain(openings.reason),
+        ),
+        (
+            "Ceiling height within 1.5 cm",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            _metric_gate_summary(evaluation, "ceiling_height"),
+            "Per-capture measurements are listed in `evaluation.json`.",
+        ),
+        (
+            "Repeated ceiling spread within 1 cm",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            _repeatability_summary(evaluation, "ceiling_height"),
+            "Requires at least two captures in a repeatability group.",
+        ),
+        (
+            "Repeated walls within 1 cm or 0.5%",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            _repeatability_summary(evaluation, "wall_length"),
+            "Requires named wall predictions across repeated captures. Identifiers are per-capture, so cross-capture matching needs a registration step that does not exist.",
+        ),
+        (
+            "Photo wall accuracy within 8%",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            _tier_wall_summary(evaluation, InputTier.PHOTO),
+            "Requires same-room photo results with named walls.",
+        ),
+        (
+            "Video wall accuracy within 3%",
+            "`src/cozmo_scan/benchmark.py`",
+            "`evaluation.json`",
+            _tier_wall_summary(evaluation, InputTier.VIDEO),
+            "Requires same-room video results with named walls.",
+        ),
+        (
+            "Photo-tier whole-property stitch within 8%",
+            "not present",
+            "none",
+            "Not evaluated",
+            "No photo-only or stitched multi-room prediction exists.",
+        ),
+        (
+            "Head-to-head against a consumer app",
+            "not present",
+            "none",
+            "Not evaluated",
+            "No licensed identical-input competitor run and no common ground truth.",
+        ),
+        (
+            "Process evidence from commit history",
+            "Git history",
+            "`git log`",
+            "Implemented with limitations",
+            "Checkpoint history is preserved. The final source-export synchronization is one later commit because the export did not include its original Git metadata.",
+        ),
     )
     lines = [
         "# Assignment compliance matrix",
         "",
-        "This matrix distinguishes implemented code, evidence still required, and unsupported scope.",
+        "Requirement, where it lives, the artifact that evidences it, and its status. "
+        "`Not evaluated` is not a pass, and `Implemented with limitations` is not a claim "
+        "that an accuracy gate has been met.",
         "",
-        "| Requirement | Current status | Evidence / limitation |",
-        "|---|---|---|",
+        "Paths are relative to the repository root. Artifact names without a directory are "
+        "published inside a run output directory.",
+        "",
+        "| Requirement | File path | Artifact | Status | Evidence / limitation |",
+        "|---|---|---|---|---|",
     ]
     lines.extend(
-        f"| {_markdown(requirement)} | {_markdown(status)} | {_markdown(evidence)} |"
-        for requirement, status, evidence in rows
+        f"| {_markdown(requirement)} | {path} | {artifact} | {_markdown(status)} | {_markdown(evidence)} |"
+        for requirement, path, artifact, status, evidence in rows
     )
     lines.extend(
         [
             "",
-            "`Not evaluated` is not a pass. `Implemented with limitations` is not a claim that the assignment accuracy gate has been met.",
+            f"Rows: {len(rows)}. Implemented rows name the module that produces the "
+            "behaviour; unbuilt rows say `not present` rather than pointing at a file "
+            "that does not implement them.",
             "",
         ]
     )
     return "\n".join(lines)
 
 
+def _markdown_plain(value: str) -> str:
+    """Collapse a sentence for table use without wrapping it in code ticks."""
+    return " ".join(str(value).split())
+
+
+def _opening_implementation_status(evaluation: BenchmarkEvaluation) -> str:
+    if evaluation.predicted_opening_count_across_captures:
+        return "Implemented with limitations"
+    if evaluation.openings.expected_count:
+        return "Implemented; no candidate passed the evidence gates"
+    return "Implemented; not evaluated"
+
+
+def _interval_implementation_status(evaluation: BenchmarkEvaluation) -> str:
+    if evaluation.interval_calibration.interval_count:
+        return "Implemented with limitations; coverage measured"
+    return "Implemented with limitations; no truth to measure coverage against"
+
+
+def _wall_identity_status(evaluation: BenchmarkEvaluation) -> str:
+    if evaluation.predicted_wall_count_across_captures:
+        return "Implemented with limitations"
+    return "Implemented; not evaluated"
+
+
+#: Interval metric name in `result.json` mapped to the ground-truth room field
+#: that it should be checked against.
+_INTERVAL_TRUTH_FIELDS: dict[str, str] = {
+    "floor_area_m2": "floor_area_m2",
+    "principal_length_m": "principal_length_m",
+    "principal_width_m": "principal_width_m",
+    "ceiling_height_m": "ceiling_height_m",
+}
+
+
+def _published_interval_coverage(
+    manifest: GroundTruthManifest,
+    rooms: dict[str, GroundTruthRoom],
+    results: dict[str, RunResult],
+) -> tuple[tuple[float, float, float], ...]:
+    """Pair every published interval with its ground-truth value, when one exists.
+
+    Coverage is only computable where truth is supplied. A capture with intervals
+    but no truth contributes nothing, which is why an empty result reports
+    `not_evaluated` rather than a coverage of zero.
+    """
+    triples: list[tuple[float, float, float]] = []
+    for capture in manifest.captures:
+        result = results.get(capture.capture_name)
+        if result is None:
+            continue
+        room = rooms.get(capture.room_id)
+        if room is None:
+            continue
+        for interval in result.intervals:
+            field = _INTERVAL_TRUTH_FIELDS.get(interval.metric)
+            if field is None:
+                continue
+            truth = getattr(room, field, None)
+            if truth is None:
+                continue
+            low, high = sorted((interval.low, interval.high))
+            triples.append((low, high, float(truth)))
+    return tuple(triples)
+
+
 def _prediction_from_result(result: RunResult) -> _PredictedRoom:
     plan = result.room.floor_plan
+    analysis = result.room.openings
+    # CP10 publishes deterministic wall identifiers and measured opening widths.
+    # Results predating CP10, and captures whose opening analysis is unavailable,
+    # keep the CP08 behaviour of empty maps so truth becomes an explicit miss
+    # rather than a silently absent comparison.
+    walls_m: dict[str, float] = {}
+    openings_m: dict[str, float] = {}
+    if analysis is not None and analysis.status == "available":
+        walls_m = {wall.wall_id: wall.length_m for wall in analysis.walls}
+        openings_m = {
+            opening.opening_id: opening.width_m for opening in analysis.openings
+        }
     return _PredictedRoom(
         floor_area_m2=plan.area_m2,
         principal_length_m=plan.length_m,
         principal_width_m=plan.width_m,
         ceiling_height_m=result.room.ceiling_height_m,
-        # CP05 wall planes have no stable physical wall IDs or finite wall lengths.
-        walls_m={},
-        # CP05/CP06 do not predict openings.
-        openings_m={},
+        walls_m=walls_m,
+        openings_m=openings_m,
     )
 
 

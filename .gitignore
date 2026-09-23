@@ -6,6 +6,11 @@
 /extracted/
 /benchmark/*.local.json
 
+# Internal planning and supplied assessment material
+/THOUGHT.md
+/HANDOVER.md
+/Applied AI.docx
+
 # Python environments and package output
 /.venv/
 /venv/

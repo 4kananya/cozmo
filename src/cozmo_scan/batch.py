@@ -118,6 +118,15 @@ def run_batch(
                 floor_rmse_m=result.quality.floor_rmse_m,
                 boundary_fill_ratio=result.quality.boundary_fill_ratio,
                 detected_wall_count=result.quality.detected_wall_count,
+                identified_wall_count=(
+                    len(result.room.openings.walls) if result.room.openings else 0
+                ),
+                opening_count=(
+                    len(result.room.openings.openings) if result.room.openings else 0
+                ),
+                opening_status=(
+                    result.room.openings.status if result.room.openings else None
+                ),
                 ceiling_height_m=result.room.ceiling_height_m,
                 measurement_confidence=result.quality.measurement_confidence,
                 elapsed_seconds=time.perf_counter() - item_started,

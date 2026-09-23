@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import math
 import time
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -307,10 +308,64 @@ def trajectory_statistics(
     return trajectory, path_length, closure_proxy
 
 
+def offset_frame_pose(
+    frame: FrameRecord, offset_xyz_m: tuple[float, float, float] | None
+) -> FrameRecord:
+    """Return the frame with its recorded camera position translated.
+
+    Used by bounded drift correction. Only the translation changes, so the
+    correction stays a rigid per-frame shift of that frame's points and can
+    always be reproduced from the recorded pose plus the published offset.
+    """
+    if offset_xyz_m is None:
+        return frame
+    position = frame.odometry.position_xyz_m
+    moved = (
+        position[0] + offset_xyz_m[0],
+        position[1] + offset_xyz_m[1],
+        position[2] + offset_xyz_m[2],
+    )
+    return frame.model_copy(
+        update={"odometry": frame.odometry.model_copy(update={"position_xyz_m": moved})}
+    )
+
+
+def iterate_frame_points(
+    path: str | Path,
+    config: ReconstructionConfig,
+) -> Iterator[tuple[FrameRecord, NDArray[np.float32]]]:
+    """Yield each selected keyframe with its own unfused world points.
+
+    Voxel fusion deliberately discards which frame a point came from, so any
+    per-frame measurement (such as a drift residual) needs this separate pass.
+    """
+    with open_capture(path) as source:
+        capture_index = build_capture_index(source)
+        if config.frame_selection is FrameSelection.CONTIGUOUS_START:
+            selected = capture_index.frames[: config.max_frames]
+        else:
+            selected = select_keyframes(
+                capture_index.frames, max_frames=config.max_frames
+            )
+        for frame in selected:
+            result = reconstruct_keyframe(source, frame, config)
+            if result.valid_point_count:
+                yield frame, result.points_xyz_m
+
+
 def reconstruct_capture(
-    path: str | Path, config: ReconstructionConfig
+    path: str | Path,
+    config: ReconstructionConfig,
+    *,
+    pose_offsets_xyz_m: Mapping[str, tuple[float, float, float]] | None = None,
 ) -> ReconstructionResult:
-    """Reconstruct a bounded metric point cloud from one validated capture."""
+    """Reconstruct a bounded metric point cloud from one validated capture.
+
+    `pose_offsets_xyz_m` optionally translates individual keyframe poses by
+    frame identifier. The recorded-pose reconstruction remains the control: pass
+    nothing and the result is bit-for-bit what it was before drift correction
+    existed.
+    """
     started = time.perf_counter()
     validation = validate_capture(path)
     if not validation.valid:
@@ -337,6 +392,11 @@ def reconstruct_capture(
                 )
             if not selected_frames:
                 raise ReconstructionError("No frames were selected for reconstruction")
+            if pose_offsets_xyz_m:
+                selected_frames = tuple(
+                    offset_frame_pose(frame, pose_offsets_xyz_m.get(frame.frame_id))
+                    for frame in selected_frames
+                )
 
             cloud = np.empty((0, 3), dtype=np.float32)
             buffered: list[NDArray[np.float32]] = []
